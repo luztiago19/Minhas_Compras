@@ -1,0 +1,8 @@
+{
+  "appId": "br.com.cestacerta.app",
+  "appName": "Cesta Certa",
+  "webDir": "www",
+  "plugins": {
+    "CapacitorHttp": { "enabled": true }
+  }
+}

@@ -1,0 +1,31 @@
+CESTA CERTA - PROJETO DO APK (Android)
+
+O QUE É
+O mesmo app do teste, empacotado como aplicativo Android com:
+ - leitor de QR code do Google (nativo, abre a câmera sozinho)
+ - OCR do Google ML Kit (nativo) para fotos de nota
+ - acesso direto à página da Fazenda, sem o bloqueio do navegador (CORS)
+
+COMO GERAR O APK SEM INSTALAR NADA (GitHub, grátis)
+1. Crie uma conta em github.com (se ainda não tiver).
+2. Crie um repositório novo (botão "New"), nome: cesta-certa. Pode ser privado.
+3. Descompacte este zip no computador. No repositório, clique em "uploading an existing file"
+   e arraste TODO o conteúdo da pasta (inclusive a pasta oculta .github).
+   Se a pasta .github não subir, clique em Add file > Create new file, digite no nome
+   .github/workflows/build-apk.yml e cole o conteúdo do arquivo build-apk.yml que veio junto.
+   Depois clique em "Commit changes".
+4. Abra a aba Actions. Escolha "Gerar APK" e clique em Run workflow. Leva uns 5 a 10 minutos.
+   (Se o GitHub perguntar, ative os workflows.)
+5. Quando ficar verde, clique na execução e, no fim da página, em "Artifacts", baixe cesta-certa-apk.
+6. Descompacte e instale o app-debug.apk no celular (o Android pede para permitir instalar de fonte desconhecida).
+
+SE DER ERRO NA COMPILAÇÃO
+Abra a execução com o X vermelho, clique no passo que falhou e copie as últimas linhas do texto.
+Me mande que eu corrijo.
+
+OBSERVAÇÕES
+ - É um APK de teste (assinatura de depuração). Serve para instalar e testar, não para a Play Store.
+ - Os dados do app ficam no aparelho. Para levar o histórico da versão PWA, use "Exportar backup" nos
+   Ajustes do PWA e "Restaurar" no APK.
+ - Sem internet as fontes caem para as do sistema; o app funciona igual.
+ - O ícone é o padrão do Capacitor por enquanto.

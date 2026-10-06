@@ -1,0 +1,13 @@
+{
+  "name": "cesta-certa",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cesta Certa - compras de supermercado, preços e estoque",
+  "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/cli": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor-mlkit/barcode-scanning": "^8.2.1",
+    "@pantrist/capacitor-plugin-ml-kit-text-recognition": "^8.1.1"
+  }
+}

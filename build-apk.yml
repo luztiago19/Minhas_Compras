@@ -1,0 +1,46 @@
+name: Gerar APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Instalar dependências
+        run: npm install
+      - name: Criar projeto Android
+        run: npx cap add android
+      - name: Ajustar permissões
+        run: python3 scripts/patch_android.py
+      - name: Copiar o app para o Android
+        run: npx cap sync android
+      - name: Compilar APK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cesta-certa-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Publicar o APK em Releases (link direto para baixar no celular)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk cesta-certa.apk
+          gh release create "apk-${{ github.run_number }}" cesta-certa.apk --title "APK ${{ github.run_number }}" --notes "APK de teste gerado automaticamente. Baixe cesta-certa.apk e instale no celular."
