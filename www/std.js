@@ -117,6 +117,56 @@
     return w.join(' ');
   }
 
+  // palavras comuns de nota fiscal (ajuda a corrigir letras trocadas pelo OCR)
+  const COMMON = new Set(["ABACAXI", "ABOBORA", "ABSORVENTE", "ACEM", "ACHOCOLATADO", "ACUCAR", "AGUA", "AGULHINHA", "ALCATRA", "ALFACE", "ALHO", "ALVEJANTE", "AMACIANTE", "AMENDOIM", "ARROZ", "ATUM", "AVEIA", "AZEITE", "AZEITONA", "BALA", "BANANA", "BANDEJA", "BARRA", "BATATA", "BIFE", "BISCOITO", "BOLACHA", "BOVINA", "BRANCO", "BROCOLIS", "CAFE", "CAIXA", "CALDO", "CANELA", "CARIOCA", "CARNE", "CASTANHA", "CATCHUP", "CEBOLA", "CENOURA", "CEREAL", "CERVEJA", "CHICLETE", "CHOCOLATE", "CHUCHU", "COLORAU", "CONDENSADO", "CONDICIONADOR", "COSTELA", "COUVE", "COXA", "CREME", "CRISTAL", "DEMERARARA", "DENTAL", "DESINFETANTE", "DESNATADO", "DESODORANTE", "DETERGENTE", "DIET", "DOG", "ERVILHA", "ESCOVA", "ESPAGUETE", "ESPONJA", "EXTRA", "EXTRATO", "FARINHA", "FATIADO", "FEIJAO", "FERMENTO", "FILE", "FORMA", "FRALDA", "FRANGO", "FRUTAS", "GALINHA", "GARIBALDI", "GARRAFA", "GELATINA", "GIRASSOL", "GRANOLA", "GUARDANAPO", "HAMBURGUER", "HIGIENICO", "HOT", "INTEGRAL", "IOGURTE", "KETCHUP", "LARANJA", "LASANHA", "LATA", "LEGUMES", "LEITE", "LIGHT", "LIMAO", "LINGUICA", "LINHACA", "LIQUIDO", "MACA", "MACARRAO", "MAIONESE", "MAMAO", "MANGA", "MANTEIGA", "MARGARINA", "MELANCIA", "MILHO", "MINERAL", "MOIDA", "MOLHO", "MORANGO", "MORTADELA", "MOSTARDA", "MUSSARELA", "NAT", "NATA", "NATURAL", "OLEO", "ORIGANO", "OVO", "OVOS", "PACOCA", "PACOTE", "PAO", "PAPEL", "PARBOILIZADO", "PATINHO", "PEDACO", "PEITO", "PEPINO", "PET", "PIMENTA", "PIMENTAO", "PIZZA", "PO", "PREMIUM", "PRESUNTO", "PRETO", "PUDIM", "QUEIJO", "RALADO", "REFINADO", "REFRIGERANTE", "REPOLHO", "REQUEIJAO", "ROSE", "SABAO", "SABONETE", "SAL", "SALGADINHO", "SALSICHA", "SANITARIA", "SARDINHA", "SAZON", "SEMIDESNATADO", "SHAMPOO", "SOJA", "SORVETE", "SUCO", "SUINA", "SUPER", "TABLETE", "TEMPERO", "TINTO", "TOALHA", "TOMATE", "TRADICIONAL", "TRIGO", "UNIDADE", "UVA", "VINAGRE", "VINHO", "ZERO"]);
+  function vocabOf(extraNames) {
+    const v = new Set(COMMON);
+    Object.keys(ABBR).forEach((k) => { v.add(k); v.add(ABBR[k]); });
+    Object.keys(ACC).forEach((k) => v.add(k));
+    Object.keys(BRANDS).forEach((b) => b.split(' ').forEach((w) => { if (w.length > 2) v.add(w); }));
+    (extraNames || []).forEach((n) => strip(n).replace(/[^A-Z ]+/g, ' ').split(/\s+/).forEach((w) => { if (w.length > 2) v.add(w); }));
+    return v;
+  }
+  // distância de edição com troca de letras vizinhas (Damerau), com corte
+  function dist(a, b, max) {
+    if (Math.abs(a.length - b.length) > max) return max + 1;
+    const d = []; for (let i = 0; i <= a.length; i++) { d[i] = [i]; } for (let j = 1; j <= b.length; j++) d[0][j] = j;
+    for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) {
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
+    }
+    return d[a.length][b.length];
+  }
+  const LOOK = { '0': ['O'], '1': ['I', 'L'], '2': ['Z'], '4': ['A'], '5': ['S'], '6': ['G'], '8': ['B', 'G'], '9': ['G'] };
+  function fixWord(w, vocab) {
+    if (vocab.has(w)) return w;
+    const letters = (w.match(/[A-Z]/g) || []).length, digits = (w.match(/\d/g) || []).length;
+    let cands = [w];
+    if (digits && letters >= digits && letters >= 2) { // "8ATAVO", "DO8", "D0G": números no lugar de letras
+      cands = [''];
+      for (const ch of w) { const alts = /\d/.test(ch) ? (LOOK[ch] || [ch]) : [ch]; const nx = []; cands.forEach((c) => alts.forEach((a) => { if (nx.length < 24) nx.push(c + a); })); cands = nx; }
+      const hit = cands.find((c) => vocab.has(c)); if (hit) return hit;
+    } else if (digits) return w;
+    // letras trocadas: palavra do vocabulário a 1 letra de distância (2 em palavras longas)
+    const base = cands[0], L = base.length; if (L < 3) return w;
+    const max = L >= 9 ? 2 : 1; let best = null, n = 0;
+    vocab.forEach((v) => {
+      if (Math.abs(v.length - L) > max) return;
+      if (L <= 4 && (v[0] !== base[0] || v[v.length - 1] !== base[L - 1])) return; // palavras curtas: início e fim iguais
+      if (L === 3 && v.length !== 3) return;
+      const dd = dist(base, v, max); if (dd <= max) { if (!best || dd < best.d) { best = { v, d: dd }; n = 1; } else if (dd === best.d) n++; }
+    });
+    return best && n === 1 ? best.v : w;
+  }
+  // Corrige o nome lido por OCR palavra por palavra (letras trocadas, números no lugar de letras, lixo de linha vizinha)
+  function ocrFix(name, extraNames, vocab) {
+    vocab = vocab || vocabOf(extraNames);
+    let s = strip(name).replace(/\b(?:DESC\w*|ITEN?)\b\.*:?\s*\d*/g, ' ').replace(/\s+/g, ' ').trim();
+    s = s.replace(/\b(\d[.,]\d{3})6\b/g, '$1G').replace(/\b(100|150|200|250|300|350|400|450|500|900)[46]\b/g, '$1G');
+    const out = s.split(' ').map((w) => (/^[A-Z0-9]+$/.test(w) && /[A-Z]/.test(w) ? fixWord(w, vocab) : w));
+    return out.join(' ');
+  }
+
   // Principal: nome padrão + como o produto é vendido
   function standardize(rawName, unit) {
     let s = strip(rawName).replace(/\s+/g, ' ').trim();
@@ -183,6 +233,6 @@
     return best && bs >= min && (bs === 1 || bs - second >= 0.05) ? { name: best, score: bs } : null;
   }
 
-  const api = { standardize, normalizeItem, normUnit, sizeOf, sameSize, sizeLabel, perUnit, similarity, bestMatch, fmtNum, brandIn, findBrand, genericName, withBrand, brandNames };
+  const api = { standardize, normalizeItem, normUnit, sizeOf, sameSize, sizeLabel, perUnit, similarity, bestMatch, fmtNum, brandIn, findBrand, ocrFix, vocabOf, genericName, withBrand, brandNames };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Std = api;
 })(typeof self !== 'undefined' ? self : this);

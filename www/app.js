@@ -235,7 +235,8 @@
     const names = Array.from(new Set(S.purchases.map((p) => p.marketName).filter(Boolean)));
     openSheet('Ofertas e preços', `<datalist id="dl-m">${names.map((m) => `<option value="${esc(m)}">`).join('')}</datalist>
       <div class="stack"><div class="note">Fotografe um folheto, banner ou a etiqueta de preço no mercado. O app lê os produtos e já compara com o que você pagou.</div>
-        <div class="pick"><div class="btn block primary" style="justify-content:flex-start;padding:14px">${svg('camera', 'icon')}<span style="text-align:left"><b>Foto, imagem ou PDF do folheto</b><br><span style="font-weight:400;font-size:13px">Câmera, galeria ou arquivo. Várias páginas de uma vez (PDF até 12 páginas)</span></span></div><input id="f-offer" type="file" accept="image/*,.pdf,application/pdf" multiple aria-label="Foto ou PDF do folheto, banner ou etiqueta"></div>
+        <div class="pick"><div class="btn block" style="justify-content:flex-start;padding:14px">${svg('camera', 'icon')}<span style="text-align:left"><b>Tirar foto agora</b><br><span style="font-weight:400;font-size:13px">Abre a câmera (folheto, banner ou etiqueta de preço)</span></span></div><input id="f-offer-cam" type="file" accept="image/*" capture="environment" aria-label="Tirar foto do folheto, banner ou etiqueta"></div>
+        <div class="pick"><div class="btn block primary" style="justify-content:flex-start;padding:14px">${svg('file', 'icon')}<span style="text-align:left"><b>Foto, imagem ou PDF do folheto</b><br><span style="font-weight:400;font-size:13px">Câmera, galeria ou arquivo. Várias páginas de uma vez (PDF até 12 páginas)</span></span></div><input id="f-offer" type="file" accept="image/*,.pdf,application/pdf" multiple aria-label="Foto ou PDF do folheto, banner ou etiqueta"></div>
         ${sampleNS && sampleImg ? `<label class="check-line"><input type="checkbox" id="of-ai" ${ui.ofAI === false ? '' : 'checked'}> Ler com o Claude (mais preciso em folhetos; usa sua cota de uso)</label>` : '<div class="note">Leitura por OCR no aparelho. Em folhetos muito coloridos, confira os itens.</div>'}
         <div id="of-prog" class="note" hidden></div>
         <div id="of-body" class="stack"></div></div>`);
@@ -560,8 +561,10 @@
         <button class="btn block primary" data-act="scan" style="justify-content:flex-start;padding:14px">${svg('qr', 'icon')}<span style="text-align:left"><b>Escanear QR code da nota</b><br><span style="font-weight:400;font-size:13px">Aponte a câmera para o QR do cupom</span></span></button>
         <div class="pick"><div class="btn block" style="justify-content:flex-start;padding:14px">${svg('file', 'icon')}<span style="text-align:left"><b>Arquivos da Fazenda</b><br><span class="note">XML (exato) ou PDF da NFC-e, vários de uma vez</span></span></div>
           <input id="f-doc" type="file" accept=".xml,.pdf,text/xml,application/xml,application/pdf" multiple aria-label="Escolher arquivos XML ou PDF"></div>
-        <div class="pick"><div class="btn block" style="justify-content:flex-start;padding:14px">${svg('camera', 'icon')}<span style="text-align:left"><b>Foto da nota</b><br><span class="note">Câmera ou galeria. Lê o texto no aparelho (OCR) e pede conferência</span></span></div>
-          <input id="f-img" type="file" accept="image/*" multiple aria-label="Escolher foto da nota"></div>
+        <div class="pick"><div class="btn block" style="justify-content:flex-start;padding:14px">${svg('camera', 'icon')}<span style="text-align:left"><b>Tirar foto da nota</b><br><span class="note">Abre a câmera. Lê o texto no aparelho (OCR) e pede conferência</span></span></div>
+          <input id="f-cam" type="file" accept="image/*" capture="environment" aria-label="Tirar foto da nota"></div>
+        <div class="pick"><div class="btn block" style="justify-content:flex-start;padding:14px">${svg('file', 'icon')}<span style="text-align:left"><b>Foto ou print da galeria</b><br><span class="note">Escolha uma ou várias imagens já salvas</span></span></div>
+          <input id="f-img" type="file" accept="image/*" multiple aria-label="Escolher foto da nota na galeria"></div>
         <button class="btn block" data-act="paste" style="justify-content:flex-start;padding:14px">${svg('link', 'icon')}<span style="text-align:left"><b>Link ou texto da nota (QR code)</b><br><span class="note">Abra a nota pelo QR code, copie o texto e cole aqui</span></span></button>
         <button class="btn block" data-act="offer" style="justify-content:flex-start;padding:14px">${svg('camera', 'icon')}<span style="text-align:left"><b>Folheto, banner ou etiqueta</b><br><span class="note">Lê os preços e compara com o seu histórico</span></span></button>
         <button class="btn block" data-act="manual" style="justify-content:flex-start;padding:14px">${svg('type', 'icon')}<span style="text-align:left"><b>Digitar manualmente</b><br><span class="note">Para compras sem nota</span></span></button>
@@ -646,11 +649,14 @@
     const um = v.match(/https?:\/\/\S+/);
     if (um && v.replace(um[0], '').trim().length < 20) {
       btn.textContent = 'Abrindo…'; btn.disabled = true;
-      try { text = (await Importers.fetchPage(um[0])) + '\n' + um[0]; } catch (e) { return fail('O navegador não deixou o app abrir a página. Abra o link, copie o texto da nota e cole aqui.'); }
+      try { text = (await Importers.fetchPage(um[0])) + '\n' + um[0]; } catch (e) { return fail('O app não conseguiu abrir a página. Use o QR code do cupom, ou abra o link no navegador, copie o texto da nota e cole aqui.'); }
     }
     let d = Parser.parseSefazText(text);
     if (!d.items.length) { const g = Parser.parseReceiptText(text); if (g.items.length) d = Object.assign(g, { id: d.id, source: 'pdf' }); }
-    if (!d.items.length) return fail('Não achei itens nesse texto. Confira se copiou a nota inteira.');
+    if (!d.items.length) {
+      if (um && v.replace(um[0], '').trim().length < 20) return fail('Abri o link, mas a Fazenda não mostrou os itens. Links só com a chave de acesso (chNFe=...) pedem verificação no navegador. Use o botão de QR code, que abre a nota completa, ou tire um print da nota aberta e importe como foto.');
+      return fail('Não achei itens nesse texto. Confira se copiou a nota inteira.');
+    }
     if (!d.date) d.date = today();
     if (qrPending) { if (!d.id) d.id = qrPending.chave; if (!d.marketCnpj) d.marketCnpj = qrPending.chave.slice(6, 20); qrPending = null; }
     refineDraft(d);
@@ -695,8 +701,10 @@
     if (it.brandAuto !== false) { const p = knownByName(it.std); it.brand = (p && C.brandOf(p)) || Std.brandIn(it.std) || Std.brandIn(it.name) || ''; }
   }
   const allBrands = () => Array.from(new Set(Std.brandNames().concat(S.products.map((p) => C.brandOf(p)).filter(Boolean)))).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  let _voc = null;
+  const ocrVocab = () => _voc || (_voc = Std.vocabOf(S.products.map((p) => p.name)));
   function suggestStd0(it, ocr) {
-    const info = Std.standardize(it.name, it.unit);
+    const info = Std.standardize(ocr ? Std.ocrFix(it.name, null, ocrVocab()) : it.name, it.unit);
     delete it.via; delete it.sim; it.stdAuto = true;
     const k = C.findKnown(S, it);
     if (k) { it.std = k.product.name; it.via = k.via; return; }
@@ -710,7 +718,7 @@
     }
     it.std = info.name;
   }
-  function refineDraft(d) { const ocr = d.source === 'ocr' || d.source === 'pdf'; d.items.forEach((it) => suggestStd(it, ocr)); }
+  function refineDraft(d) { _voc = null; const ocr = d.source === 'ocr' || d.source === 'pdf'; d.items.forEach((it) => suggestStd(it, ocr)); }
 
   function reviewQueue(q, i) {
     if (i >= q.length) return;
@@ -1014,10 +1022,10 @@
   });
   document.addEventListener('change', (e) => {
     const t = e.target;
-    if (t.id === 'f-offer') { const files = t.files; processOffers(files); return; }
+    if (t.id === 'f-offer' || t.id === 'f-offer-cam') { const files = t.files; processOffers(files); return; }
     if (t.id === 'of-ai') { ui.ofAI = t.checked; return; }
     if (t.id === 'of-v' && OF) { OF.validUntil = t.value; return; }
-    if (t.id === 'f-doc' || t.id === 'f-img') { const files = t.files; closeSheet(); processFiles(files); }
+    if (t.id === 'f-doc' || t.id === 'f-img' || t.id === 'f-cam') { const files = t.files; closeSheet(); processFiles(files); }
     if (t.dataset && t.dataset.d === 'sel' && RV) { const r = RV.drows[+t.closest('.drow').dataset.n]; if (r) { r.item = RV.items[+t.value] || null; recalcDisc(); } }
     if (t.id === 'bk' && t.files[0]) restore(t.files[0]);
     if (t.id === 'f-qr' && t.files[0]) {
