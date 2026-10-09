@@ -79,6 +79,8 @@
     let prod = null;
     if (confirmed && byName) prod = byName;
     if (!prod && eanKey) prod = byKey(followAlias(S.aliases, eanKey));
+    const sKey = storeKey(raw);
+    if (!prod && sKey) prod = byKey(followAlias(S.aliases, sKey));
     if (!prod) { const k = followAlias(S.aliases, textKey); if (k !== textKey) prod = byKey(k); }
     if (!prod && byName) prod = byName;
     if (!prod) {
@@ -93,10 +95,13 @@
     }
     // de-para aprendido: este código de barras e este texto de nota apontam para o produto
     if (eanKey && eanKey !== prod.key) S.aliases[eanKey] = prod.key;
+    if (sKey && sKey !== prod.key) S.aliases[sKey] = prod.key;
     if (textKey !== prod.key) S.aliases[textKey] = prod.key;
     return prod;
   }
 
+  // código interno do mercado (ex.: "Código: 7129" na nota): vale só para aquele CNPJ, por isso a chave inclui a loja
+  const storeKey = (raw) => { const d = String(raw.cnpj || '').replace(/\D/g, ''), c = String(raw.scode || raw.code || '').trim(); return d.length === 14 && c ? 's:' + d + ':' + c : ''; };
   const brandOf = (p) => (p && (p.brand || Std.brandIn(p.name))) || '';
   const genericKey = (p) => norm(Std.genericName(p.name, brandOf(p)));
 
@@ -104,6 +109,7 @@
   function findKnown(S, raw) {
     const ean = validEAN(raw.ean) ? cleanEAN(raw.ean) : '', byKey = (k) => S.products.find((p) => p.key === k);
     if (ean) { const p = byKey(followAlias(S.aliases, 'e:' + ean)); if (p) return { product: p, via: 'código de barras' }; }
+    const sk = storeKey(raw); if (sk) { const sp = byKey(followAlias(S.aliases, sk)); if (sp && sp.key !== sk) return { product: sp, via: 'código do mercado' }; }
     const tk = 'n:' + norm(raw.name), k = followAlias(S.aliases, tk), p = byKey(k !== tk ? k : tk);
     return p ? { product: p, via: k !== tk ? 'correção anterior' : 'compra anterior' } : null;
   }
@@ -111,7 +117,9 @@
   function addPurchase(S, draft) {
     const id = draft.id || 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     if (S.purchases.some((p) => p.id === id)) return { duplicate: true, id };
-    const mk = marketKey(draft.marketCnpj, draft.marketName);
+    const mk = marketKey(draft.marketCnpj, draft.marketName), cnpjD = String(draft.marketCnpj || '').replace(/\D/g, '');
+    const friendly = cnpjD.length === 14 && S.settings.marketNames && S.settings.marketNames[cnpjD];
+    if (friendly) draft = Object.assign({}, draft, { marketName: friendly });
     const items = [];
     let total = 0;
     (draft.items || []).forEach((raw, i) => {
@@ -124,12 +132,13 @@
       const brandIn = String(raw.brand || '').trim();
       let stdName = confirmed ? String(raw.std).trim() : info.name;
       if (brandIn) stdName = Std.withBrand(stdName, brandIn);
-      const prod = resolveProduct(S, raw, stdName, info, confirmed);
+      const prod = resolveProduct(S, Object.assign({}, raw, { cnpj: cnpjD }), stdName, info, confirmed);
       const nz = Std.normalizeItem(raw.name, unit, qty, unitPrice, Object.assign({}, info, { base: prod.base || info.base }));
       total += t;
       items.push({
         id: id + '-' + i, purchaseId: id, date: draft.date, marketKey: mk, marketName: draft.marketName,
         productKey: prod.key, name: raw.name, ean: validEAN(raw.ean) ? cleanEAN(raw.ean) : '', qty: nz.qty, unit: nz.unit, unitPrice: nz.unitPrice, total: round(t, 2),
+        promo: !!raw.promo, scode: String(raw.scode || raw.code || '').trim(),
         disc: round(num(raw.disc) || 0, 2), orig: { qty, unit, unitPrice: round(unitPrice, 4) },
       });
     });
@@ -155,9 +164,16 @@
     const rows = S.items.filter((i) => i.purchaseId === purchaseId).map((it) => {
       let best = null, n = 0;
       for (const o of S.items) {
-        if (o.productKey !== it.productKey || o.purchaseId === purchaseId || o.date < from || o.date > today) continue;
+        if (o.productKey !== it.productKey || o.purchaseId === purchaseId || o.promo || o.date < from || o.date > today) continue;
         n++;
         if (!best || o.unitPrice < best.unitPrice - 1e-9 || (Math.abs(o.unitPrice - best.unitPrice) < 1e-9 && o.date > best.date)) best = o;
+      }
+      // item marcado como super promoção: fica fora da comparação; só mostra quanto economizou contra a média e o menor preço normais
+      if (it.promo) {
+        const base = S.items.filter((o) => o.productKey === it.productKey && o.purchaseId !== purchaseId && !o.promo && o.date <= today);
+        const avg = base.length ? base.reduce((a, o) => a + o.unitPrice, 0) / base.length : 0;
+        const ref = avg > it.unitPrice ? avg : 0;
+        return { item: it, best, alt: null, n, status: 'promo', ideal: it.unitPrice, saving: 0, diff: 0, promoRef: ref ? round(ref, 4) : 0, promoMin: best ? best.unitPrice : 0, promoSave: ref ? round((ref - it.unitPrice) * it.qty, 2) : 0 };
       }
       const cheaper = !!best && best.unitPrice < it.unitPrice - 0.005;
       // mesma coisa em outra marca (mesmo nome sem a marca e mesmo tamanho) por menos
@@ -166,7 +182,7 @@
       if (me) {
         const gk = genericKey(me), others = new Set(S.products.filter((x) => x.key !== me.key && genericKey(x) === gk && Std.sameSize(x.name, me.name)).map((x) => x.key));
         if (others.size) for (const o of S.items) {
-          if (!others.has(o.productKey) || o.date < from || o.date > today) continue;
+          if (!others.has(o.productKey) || o.promo || o.date < from || o.date > today) continue;
           if (o.unitPrice < it.unitPrice - 0.005 && (!alt || o.unitPrice < alt.unitPrice)) alt = o;
         }
         if (alt) { const ap = S.products.find((x) => x.key === alt.productKey); alt = { item: alt, brand: brandOf(ap), name: ap.name, save: Math.max(0, round(it.total - alt.unitPrice * it.qty, 2)) }; }
@@ -177,7 +193,8 @@
     });
     const saving = round(rows.reduce((a, r) => a + r.saving, 0), 2);
     const altSaving = round(rows.reduce((a, r) => a + (r.alt && r.status !== 'cheaper' ? r.alt.save : 0), 0), 2);
-    return { purchase: p, rows, months, from, paid: p.total, saving, altSaving, ideal: round(p.total - saving, 2), covered: rows.filter((r) => r.n > 0).length };
+    const promoSaving = round(rows.reduce((a, r) => a + (r.promoSave || 0), 0), 2), promoCount = rows.filter((r) => r.status === 'promo').length;
+    return { purchase: p, rows, months, from, paid: p.total, saving, altSaving, promoSaving, promoCount, ideal: round(p.total - saving, 2), covered: rows.filter((r) => r.n > 0).length };
   }
 
 
@@ -211,7 +228,7 @@
     P.forEach((p) => { const w = wd[new Date(parseDate(p.date)).getUTCDay()]; w.visits++; w.spent += p.total; });
     // maiores altas e quedas (primeiro x último preço no período, mínimo 2 compras em dias diferentes)
     const by = {};
-    I.forEach((i) => { (by[i.productKey] = by[i.productKey] || []).push(i); });
+    I.forEach((i) => { if (!i.promo) (by[i.productKey] = by[i.productKey] || []).push(i); });
     const movers = [];
     Object.keys(by).forEach((k) => {
       const l = by[k].slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
@@ -243,7 +260,7 @@
     const res = { product: prod, via, name: prod ? prod.name : info.name, unitPrice: nz.unitPrice, unit: nz.unit, assumed: nz.assumed, last: null, best: null, verdict: 'novo', diff: 0, altBest: null };
     const brandName = (p) => brandOf(p);
     if (prod) {
-      const its = S.items.filter((i) => i.productKey === prod.key && i.date <= today).sort((a, b) => (a.date < b.date ? 1 : -1));
+      const its = S.items.filter((i) => i.productKey === prod.key && !i.promo && i.date <= today).sort((a, b) => (a.date < b.date ? 1 : -1));
       res.last = its[0] || null;
       let best = null; its.forEach((i) => { if (i.date >= from && (!best || i.unitPrice < best.unitPrice)) best = i; });
       res.best = best;
@@ -256,7 +273,7 @@
       }
       // outra marca do mesmo produto, mais barata que a oferta
       const gk = genericKey(prod), others = new Set(S.products.filter((x) => x.key !== prod.key && genericKey(x) === gk && Std.sameSize(x.name, prod.name)).map((x) => x.key));
-      S.items.forEach((i) => { if (others.has(i.productKey) && i.date >= from && i.unitPrice < nz.unitPrice - 0.005 && (!res.altBest || i.unitPrice < res.altBest.item.unitPrice)) res.altBest = { item: i, brand: brandName(S.products.find((x) => x.key === i.productKey)) }; });
+      S.items.forEach((i) => { if (others.has(i.productKey) && !i.promo && i.date >= from && i.unitPrice < nz.unitPrice - 0.005 && (!res.altBest || i.unitPrice < res.altBest.item.unitPrice)) res.altBest = { item: i, brand: brandName(S.products.find((x) => x.key === i.productKey)) }; });
     }
     return res;
   }
@@ -291,6 +308,57 @@
     S.products = S.products.filter((p) => p.key !== src);
   }
 
+  // Pergunta "é super promoção?" quando o preço está muito abaixo do que você costuma pagar (ou é irreal, ex.: R$ 1,00)
+  function promoHint(S, raw) {
+    const price = num(raw.unitPrice), qty = num(raw.qty) || 1; if (!(price > 0)) return null;
+    const k = findKnown(S, raw), prod = k ? k.product : S.products.find((p) => norm(p.name) === norm(raw.std || ''));
+    if (prod) {
+      const info = Std.standardize(raw.name || prod.name, raw.unit);
+      const nz = Std.normalizeItem(raw.name || prod.name, raw.unit || 'UN', qty, price, Object.assign({}, info, { base: prod.base || info.base }));
+      const hist = S.items.filter((i) => i.productKey === prod.key && !i.promo);
+      if (hist.length >= 2) {
+        const avg = hist.reduce((a, i) => a + i.unitPrice, 0) / hist.length;
+        if (nz.unitPrice <= avg * 0.5) return { kind: 'hist', avg: round(avg, 2), pct: round((1 - nz.unitPrice / avg) * 100, 0) };
+        return null;
+      }
+    }
+    if (price <= 1 && String(raw.unit || 'UN').toUpperCase() === 'UN') return { kind: 'low' };
+    return null;
+  }
+
+  /* ---------- mercados: nome que o usuário usa, por CNPJ ---------- */
+  const cnpjD = (c) => String(c || '').replace(/\D/g, '');
+  function cleanMarketName(razao) {
+    const drop = new Set(['LTDA', 'LTDA.', 'S/A', 'SA', 'S.A.', 'S.A', 'EIRELI', 'ME', 'EPP', 'REDE', 'DISTRIBUIDORA', 'COMERCIO', 'COMÉRCIO', 'COMERCIAL', 'E', 'DE', 'DO', 'DA', 'DOS', 'DAS', '-']);
+    const w = String(razao || '').trim().split(/\s+/).filter(Boolean);
+    while (w.length > 1 && drop.has(w[w.length - 1].toUpperCase())) w.pop();
+    while (w.length > 1 && drop.has(w[0].toUpperCase())) w.shift();
+    return w.join(' ') || String(razao || '').trim();
+  }
+  // { name, known, fromRede, note } - nome sugerido para a loja desta nota
+  function suggestMarket(S, cnpj, razao, city) {
+    const d = cnpjD(cnpj), names = (S.settings && S.settings.marketNames) || {};
+    if (d.length === 14 && names[d]) return { name: names[d], known: true };
+    if (d.length === 14 && names['r:' + d.slice(0, 8)]) { const base = names['r:' + d.slice(0, 8)]; return { name: (base + (city ? ' ' + city : '')).trim(), known: false, fromRede: base }; }
+    return { name: cleanMarketName(razao), known: false };
+  }
+  // guarda o nome para o CNPJ, aplica nas compras já salvas e lembra o nome-base da rede (mesma raiz de CNPJ)
+  function setMarketName(S, cnpj, name) {
+    const d = cnpjD(cnpj), nm = String(name || '').trim(); if (d.length !== 14 || !nm) return false;
+    S.settings.marketNames = S.settings.marketNames || {};
+    S.settings.marketNames[d] = nm;
+    const r = 'r:' + d.slice(0, 8); if (!S.settings.marketNames[r]) S.settings.marketNames[r] = nm;
+    S.purchases.forEach((p) => { if (p.marketCnpj === d) p.marketName = nm; });
+    S.items.forEach((i) => { if (i.marketKey === d) i.marketName = nm; });
+    return true;
+  }
+  // mês da compra pela chave de acesso (posições 3-6 = AAMM)
+  function chaveMonth(chave) {
+    const c = String(chave || '').replace(/\D/g, ''); if (c.length !== 44) return '';
+    const yy = +c.slice(2, 4), mm = +c.slice(4, 6); if (mm < 1 || mm > 12) return '';
+    return (2000 + yy) + '-' + pad(mm);
+  }
+
   /* ---------- análise: preços, consumo, estoque ---------- */
 
   function analyze(S, today) {
@@ -301,6 +369,7 @@
     for (const p of S.products) {
       const its = (by[p.key] || []).slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
       if (!its.length) continue;
+      const pits0 = its.filter((i) => !i.promo), pits = pits0.length ? pits0 : its; // preços: sem super promoção (se só houver promoção, usa ela)
       const ev = [];
       for (const it of its) {
         const l = ev[ev.length - 1];
@@ -326,7 +395,7 @@
 
       // preço por mercado (último preço de cada um)
       const mk = {};
-      for (const it of its) {
+      for (const it of pits) {
         const m = mk[it.marketKey] || (mk[it.marketKey] = { key: it.marketKey, name: it.marketName, sum: 0, n: 0, price: 0, date: '' });
         m.sum += it.unitPrice; m.n++; m.price = it.unitPrice; m.date = it.date; m.name = it.marketName;
       }
@@ -334,17 +403,17 @@
       const fresh = markets.filter((m) => daysBetween(m.date, today) <= 180);
       const pool = fresh.length ? fresh : markets;
       const best = pool.reduce((a, b) => (b.price < a.price ? b : a), pool[0]);
-      const last = its[its.length - 1];
+      const last = pits[pits.length - 1], lastBuy = its[its.length - 1];
       // variação: último preço vs. preço da compra anterior (data diferente)
       let prev = null;
-      for (let i = its.length - 1; i >= 0; i--) if (its[i].date < last.date) { prev = its[i]; break; }
+      for (let i = pits.length - 1; i >= 0; i--) if (pits[i].date < last.date) { prev = pits[i]; break; }
       const chg = prev ? (last.unitPrice - prev.unitPrice) / prev.unitPrice : null;
-      const first = its[0];
+      const first = pits[0];
       const chgFirst = first.date < last.date ? (last.unitPrice - first.unitPrice) / first.unitPrice : null;
-      const prices = its.map((i) => i.unitPrice);
+      const prices = pits.map((i) => i.unitPrice);
       out[p.key] = {
-        p, its, ev, rate, interval, est, daysLeft, last, markets, best, pool, chg, chgFirst,
-        min: Math.min(...prices), max: Math.max(...prices), n: its.length, qtyTotal: its.reduce((a, i) => a + i.qty, 0),
+        p, its: pits, all: its, lastBuy, ev, rate, interval, est, daysLeft, last, markets, best, pool, chg, chgFirst,
+        min: Math.min(...prices), max: Math.max(...prices), n: pits.length, qtyTotal: its.reduce((a, i) => a + i.qty, 0),
         intQty: ev.every((e) => Math.abs(e.qty - Math.round(e.qty)) < 1e-9),
       };
     }
@@ -359,7 +428,7 @@
     const rows = [];
     for (const a of Object.values(an)) {
       if (a.p.ignore || !a.rate) continue;
-      if (daysBetween(a.last.date, today) > Math.max(90, a.interval * 4)) continue; // produto parado
+      if (daysBetween(a.lastBuy.date, today) > Math.max(90, a.interval * 4)) continue; // produto parado
       if (a.daysLeft >= opts.horizon) continue;
       const q = roundQty(a.rate * opts.horizon - a.est, a.intQty);
       if (!(q > 0)) continue;
@@ -455,7 +524,7 @@
   }
 
   const api = {
-    norm, prettyName, num, cleanEAN, gtinOK, parseDate, daysBetween, toISO, todayISO, addDays, validEAN, round, resolveKey, marketKey,
+    promoHint, suggestMarket, setMarketName, cleanMarketName, chaveMonth, norm, prettyName, num, cleanEAN, gtinOK, parseDate, daysBetween, toISO, todayISO, addDays, validEAN, round, resolveKey, marketKey,
     newState, addPurchase, findKnown, brandOf, genericKey, dashboard, evalOffer, activeOffers, compare, addMonthsISO, removePurchase, pruneProducts, mergeProducts, analyze, suggest, marketIndex, demoDrafts, roundQty,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Core = api;

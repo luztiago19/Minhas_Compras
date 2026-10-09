@@ -7,7 +7,7 @@
     if (!isNative) return null;
     try { return (C.Plugins && C.Plugins[name]) || (C.registerPlugin && C.registerPlugin(name)) || null; } catch (e) { return null; }
   };
-  const BS = plugin('BarcodeScanner'), TR = plugin('CapacitorPluginMlKitTextRecognition');
+  const CAM = plugin('Camera'), BS = plugin('BarcodeScanner'), TR = plugin('CapacitorPluginMlKitTextRecognition');
 
   // QR com a câmera nativa (leitor do Google). Retorna o texto, ou null se o usuário cancelou.
   // Lança Error com .code = 'install' (módulo do Google sendo baixado) ou 'unsupported'.
@@ -25,6 +25,16 @@
       if (/cancel/i.test(String((e && e.message) || e))) return null;
       throw Object.assign(new Error(String((e && e.message) || e)), { code: 'unsupported' });
     }
+  }
+
+  // Código de barras de produto (EAN/UPC) com a câmera. Retorna só os dígitos, ou null se cancelou.
+  async function scanEAN() {
+    if (!BS) throw new Error('sem leitor nativo');
+    try {
+      const r = await BS.scan({ formats: ['EAN_13', 'EAN_8', 'UPC_A', 'UPC_E'] });
+      const b = r && r.barcodes && r.barcodes[0];
+      return b ? String(b.rawValue || b.displayValue || '').replace(/\D/g, '') || null : null;
+    } catch (e) { if (/cancel/i.test(String((e && e.message) || e))) return null; throw e; }
   }
 
   // Monta linhas a partir das caixas de texto do ML Kit (nome e preço do mesmo item ficam na mesma linha)
@@ -54,5 +64,20 @@
     return rowsFromBlocks(r && r.blocks) || (r && r.text) || '';
   }
 
-  root.Native = { isNative, canScan: !!BS, canOcr: !!TR, scanQR, ocrCanvas, rowsFromBlocks };
+  // Câmera nativa: tira a foto e devolve um File (null se cancelou). Lança erro se não houver câmera/permissão.
+  async function takePhoto() {
+    if (!CAM) throw new Error('sem câmera nativa');
+    try {
+      const r = await CAM.getPhoto({ quality: 92, resultType: 'base64', source: 'CAMERA', correctOrientation: true, saveToGallery: false });
+      if (!r || !r.base64String) return null;
+      const bin = atob(r.base64String), u8 = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+      return new File([u8], 'foto-' + Date.now() + '.jpg', { type: 'image/' + (r.format === 'png' ? 'png' : 'jpeg') });
+    } catch (e) {
+      if (/cancel/i.test(String((e && e.message) || e))) return null;
+      throw e;
+    }
+  }
+
+  root.Native = { isNative, canCamera: !!CAM, takePhoto, canScan: !!BS, canOcr: !!TR, scanQR, scanEAN, ocrCanvas, rowsFromBlocks };
 })(typeof self !== 'undefined' ? self : this);

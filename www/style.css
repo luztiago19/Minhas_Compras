@@ -257,3 +257,14 @@ button.row:active { background: var(--surface-2); }
 .itm[data-o] .l2 .sub { justify-self: end; text-align: right; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .check-line { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--ink-2); }
+
+/* conferir nota: botões no fim da lista (rolam junto), resumo no topo */
+.foot.end { position: static; margin-top: 6px; padding-bottom: 14px; }
+.rvsum { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 8px 10px; border-radius: 10px; background: var(--surface, rgba(127,127,127,.12)); font-size: 13px; }
+.rvsum b { font-size: 15px; }
+.rvsum.warn { outline: 1px solid var(--warn, #c9a227); }
+#sheet .panel { scroll-padding-bottom: 40vh; }
+
+.eanrow { display: flex; gap: 6px; align-items: center; } .eanrow .in { flex: 1; }
+.itm .promo { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; }
+.itm .promo input { width: 20px; height: 20px; margin-top: 1px; flex: none; }

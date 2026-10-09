@@ -22,6 +22,8 @@ jobs:
           java-version: 21
       - name: Instalar dependências
         run: npm install
+      - name: Escrever o número do build na tela
+        run: sed -i "s/self.APP_BUILD = ''/self.APP_BUILD = '${{ github.run_number }}'/" www/version.js
       - name: Criar projeto Android
         run: npx cap add android
       - name: Ajustar permissões

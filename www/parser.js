@@ -30,7 +30,7 @@
       let ean = txt(prod, 'cEAN');
       if (!validEAN(ean)) ean = txt(prod, 'cEANTrib');
       items.push({
-        name: txt(prod, 'xProd'), ean: validEAN(ean) ? ean : '', qty, unit: txt(prod, 'uCom').toUpperCase() || 'UN',
+        name: txt(prod, 'xProd'), ean: validEAN(ean) ? ean : '', scode: txt(prod, 'cProd'), qty, unit: txt(prod, 'uCom').toUpperCase() || 'UN',
         unitPrice: qty > 0 ? round(total / qty, 4) : 0, total,
       });
     });
@@ -251,10 +251,93 @@
     return draft;
   }
 
+
+  /* ---------- DANFE (NF-e modelo 55, sem QR code) lido por OCR em modo "bloco" ---------- */
+  const DANFE_UNIT = '(?:UND?|UNI|UNL|UN[A-Z]?|KG9?|BDJ?|PCT|LTA|CX|FD|PT|SC|GRF|LT|FR|L)';
+  const looksDanfe = (t) => (String(t).match(/DADOS DO PRODUTO|C[ÁA]LCULO DO IMPOSTO|DESTINAT[ÁA]RIO|NATUREZA D[AO]\s*OPERA|PROTOCOLO\s*D?E?\s*AUTORIZA|FOLHA\s*\d\s*\/\s*\d/gi) || []).length >= 2 && /\b[1-7]\d{3}\b/.test(t);
+  // valores possíveis de uma coluna numérica: como está escrita (vírgula, barra ou espaço no lugar da vírgula) e, com "noisy", tirando 1 dígito de ruído
+  function numVariants(tok, dec) {
+    const out = [], seen = new Set();
+    const add = (v, noisy) => { if (!isFinite(v) || v <= 0) return; const k = v + '|' + noisy; if (seen.has(k)) return; seen.add(k); out.push({ v, noisy }); };
+    const sm = tok.match(/^\D*(\d+)\s*[,\/.]+\s*(\d+)\D*$/);
+    const D = tok.replace(/\D/g, '');
+    if (sm) { if (dec === 3 && sm[2].length > 3) add(parseFloat(sm[1] + '.' + sm[2].slice(-3)), 0); add(parseFloat(sm[1] + '.' + sm[2]), 0); } else if (D && D.length <= 11) add(parseInt(D, 10) / Math.pow(10, dec), 0);
+    if (D.length >= 3 && D.length <= 11) for (let i = 0; i < D.length; i++) add(parseInt(D.slice(0, i) + D.slice(i + 1), 10) / Math.pow(10, dec), 1);
+    return out;
+  }
+  function parseDanfeRow(rest) {
+    // colunas separadas por vãos de 3+ espaços: qtd, unitário, total, depois descontos/bases (ignorados)
+    const cols = rest.replace(/[|\[\]()]/g, ' ').split(/\s{3,}/).map((x) => x.trim()).filter((x) => x).slice(0, 4);
+    const qv = cols[0] ? numVariants(cols[0], 3) : [], uv = cols[1] ? numVariants(cols[1], 5) : [], tv = cols[2] ? numVariants(cols[2], 2) : [];
+    const qOk = (x) => x.v > 0 && x.v < 1000, uOk = (x) => x.v > 0.01 && x.v < 5000;
+    for (const maxNoise of [0, 1]) { // 1º: números como estão; 2º: tirando 1 dígito de ruído de um só número
+      let best = null;
+      for (const q of qv) { if (!qOk(q)) continue;
+        for (const u of uv) { if (!uOk(u)) continue;
+          for (const t of tv) {
+            const nz = q.noisy + u.noisy + t.noisy; if (nz !== maxNoise) continue;
+            const e = Math.abs(q.v * u.v - t.v);
+            if (e <= 0.006 && (!best || e < best.e)) best = { e, qty: q.v, unitPrice: u.v, total: t.v, noisy: nz, ok: true };
+          } } }
+      if (best) return best;
+    }
+    // não fechou: usa qtd e unitário como estão, calcula o total e marca o item para conferência
+    const q0 = qv.find((x) => !x.noisy && qOk(x)), u0 = uv.find((x) => !x.noisy && uOk(x)), t0 = tv.find((x) => !x.noisy && x.v > 0);
+    let qty = q0 ? q0.v : NaN;
+    if (!isFinite(qty) && u0 && t0) { const r = t0.v / u0.v; if (r >= 0.9 && r < 30 && u0.v >= 0.2) qty = r >= 1 ? Math.round(r) : r; } // sem a quantidade: estima pelo total
+    if (!isFinite(qty)) qty = 1;
+    return { qty, unitPrice: u0 ? u0.v : '', total: u0 ? Math.round(qty * u0.v * 100) / 100 : 0, noisy: 1, ok: false };
+  }
+  function parseDanfeText(text) {
+    const raw = String(text || ''), lines = raw.split('\n');
+    const f = raw.replace(/\s+/g, ' ');
+    const draft = { source: 'ocr', danfe: true, items: [], rawText: raw, marketName: '', marketCnpj: '', date: '', city: '', discount: 0 };
+    const g = f.match(/((?:\d{4} ){10}\d{4})/); if (g) { draft.id = g[1].replace(/ /g, ''); draft.marketCnpj = draft.id.slice(6, 20); }
+    const cm = f.match(/CNPJ:?\s*(\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2})/i); if (cm && !draft.marketCnpj) draft.marketCnpj = cm[1].replace(/\D/g, '');
+    const dm = f.match(/\b(\d{2})\/(\d{2})\/(20\d{2})\b/); if (dm && +dm[2] >= 1 && +dm[2] <= 12) draft.date = `${dm[3]}-${dm[2]}-${dm[1]}`;
+    const fm = f.match(/FOLHA\s*(\d+)\s*\/\s*(\d+)/i); if (fm) draft.folha = [+fm[1], +fm[2]];
+    // total da nota: maior valor na linha do rótulo "VALOR TOTAL ... PRODUTOS" e na seguinte
+    const li = lines.findIndex((l) => /VALOR\s+TOTA.*PRODUTOS/i.test(l));
+    if (li >= 0) {
+      const vals = (lines[li] + ' ' + (lines[li + 1] || '')).match(/\d{1,3}(?:\.\d{3})*,\d{2}\b/g) || [];
+      const mx = Math.max(0, ...vals.map(num)); if (mx > 0) draft.printedTotal = mx;
+    }
+    const noise = /^(NRO|NNRO|NNW|WI|RN|NS)$/i;
+    for (let n = 0; n < lines.length; n++) {
+      const line = lines[n];
+      const m = line.match(new RegExp('[|/\\s)\\]\\[]\\s*([1-7]\\d{3})\\s*[|\\[\\s]*(' + DANFE_UNIT + ')\\b\\.?\\s*(.*)$', 'i'));
+      if (!m) continue;
+      const nums = parseDanfeRow(m[3]);
+      let left = line.slice(0, m.index);
+      left = left.replace(/[\s|(\[]*[A-Za-z]{0,2}\d{5,9}[\s|(\[\d/]*$/, '');
+      const bar = Math.max(left.lastIndexOf('|'), left.lastIndexOf('['));
+      if (bar >= 0 && bar < left.length - 4) left = left.slice(bar + 1);
+      let w = left.trim().split(/\s+/);
+      while (w.length > 1 && (/\d/.test(w[0]) || w[0].length < 3 || noise.test(w[0]) || (!/[AEIOUaeiou]/.test(w[0]) && w[0].length <= 4 && !/\./.test(w[0])))) w.shift();
+      let name = w.join(' ').replace(/^(?:HF|RF)\s*\.\s*/i, '').replace(/(?<=[A-Za-z])\.(?=[A-Za-z])/g, ' ').replace(/^[^A-Za-z]+/, '').replace(/\s+/g, ' ').trim();
+      if (!name) continue;
+      // segunda linha do item: embalagem ("BDJ 1 X 1 20UND", "LTA 1 X 1 300G", "PCT 1 X 1 8X90G")
+      for (let k = n + 1; k <= n + 2 && k < lines.length; k++) {
+        if (new RegExp('[|/\\s)]\\s*[1-7]\\d{3}\\s*[|\\[\\s]*' + DANFE_UNIT + '\\b\\.?\\s+\\d', 'i').test(lines[k])) break;
+        const pk = lines[k].match(/\b(?:UND?|UN|BDJ|PCT|LTA|CX|FD|GRF|SC|PT|FR)\s*\d+\s*[xX]\s*\d+\s+(\d[\d.,]*\s*(?:X\s*\d[\d.,]*\s*)?(?:UND|UN|G|GR|KG|ML|L))\b/i);
+        if (pk) { if (!/\d\s*(?:G|GR|KG|ML|L|UN|UND|U)\b/i.test(name)) name += ' ' + pk[1].replace(/\s+/g, ''); break; }
+      }
+      const unitRaw = m[2].toUpperCase(), unit = /^KG/.test(unitRaw) ? 'KG' : unitRaw === 'L' || unitRaw === 'LT' ? 'L' : 'UN';
+      const qty = round3(nums.qty);
+      draft.items.push({ name, ean: '', qty, unit, unitPrice: nums.unitPrice === '' ? '' : Math.round(nums.unitPrice * 1e4) / 1e4, total: Math.round(nums.total * 100) / 100, raw: name, check: !nums.ok });
+    }
+    return draft;
+  }
+  const round3 = (n) => Math.round(n * 1000) / 1000;
+
   // Texto qualquer (OCR/PDF): reconhece o layout da página/print da Fazenda e usa o leitor certo
   const looksPage = (t) => /\(\s*C[oó]digo:?[^)]*\)/i.test(t) && /Unit/i.test(t) && /Qtde/i.test(t);
-  function parseAny(text) { if (looksPage(text)) { const d = parseSefazText(text); if (d.items.length) return d; } return parseReceiptText(text); }
+  function parseAny(text) {
+    if (looksPage(text)) { const d = parseSefazText(text); if (d.items.length) return d; }
+    if (looksDanfe(text)) { const d = parseDanfeText(text); if (d.items.length) return d; }
+    return parseReceiptText(text);
+  }
 
-  const api = { parseNFeXML, parseReceiptText, parseSefazText, parseAny, looseItem };
+  const api = { parseNFeXML, parseReceiptText, parseSefazText, parseDanfeText, looksDanfe, parseAny, looseItem };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Parser = api;
 })(typeof self !== 'undefined' ? self : this);

@@ -17,7 +17,7 @@
     BAT: 'BATATA', CEN: 'CENOURA', LAR: 'LARANJA', ABOB: 'ABOBORA', PEIT: 'PEITO', FIL: 'FILE', BOV: 'BOVINO', SUIN: 'SUINO',
     ORG: 'ORGANICO', SEMI: 'SEMI', ZERO: 'ZERO', LIQ: 'LIQUIDO', CONC: 'CONCENTRADO', PREM: 'PREMIUM',
     SUP: 'SUPER', EXTR: 'EXTRA', GRAN: 'GRANDE', PEQ: 'PEQUENO', MED: 'MEDIO', BCO: 'BRANCO', BRANC: 'BRANCO', VERM: 'VERMELHO', PRET: 'PRETO',
-    AMAR: 'AMARELO', ESCUR: 'ESCURO', CLAR: 'CLARO', SORT: 'SORTIDO', SORTID: 'SORTIDO', LIGHT: 'LIGHT', DIET: 'DIET', ECON: 'ECONOMICO',
+    CAIPIR: 'CAIPIRA', CAIP: 'CAIPIRA', AMAR: 'AMARELO', ESCUR: 'ESCURO', CLAR: 'CLARO', SORT: 'SORTIDO', SORTID: 'SORTIDO', LIGHT: 'LIGHT', DIET: 'DIET', ECON: 'ECONOMICO',
   };
   // palavras comuns que perdem o acento na nota
   const ACC = {
@@ -83,7 +83,7 @@
   }
 
   // marcas (nome de exibição). Aparecem nas notas sem acento e em maiúsculas.
-  const BRAND_LIST = ["Garibaldi", "Salton", "Aurora", "Miolo", "Cassero", "Perini", "Batavo", "Presidente", "Piracanjuba", "Italac", "Parmalat", "Ninho", "Nestle", "Danone", "Vigor", "Aurora", "Tirol", "Itambe", "Elege", "Leco", "Qualy", "Doriana", "Claybom", "Delicia", "Becel", "Primor", "Soya", "Liza", "Cocamar", "Salada", "Camil", "Kicaldo", "Tio Joao", "Namorado", "Prato Fino", "Broto Legal", "Pilao", "3 Coracoes", "Melitta", "Santa Clara", "Caboclo", "Dona Benta", "Renata", "Adria", "Piraque", "Vitarella", "Marilan", "Bauducco", "Nissin", "Barilla", "Galo", "Sao Jorge", "Quero", "Predilecta", "Heinz", "Hellmanns", "Knorr", "Maggi", "Sazon", "Kitano", "Cica", "Fugini", "Pomarola", "Elefante", "Sadia", "Perdigao", "Seara", "Friboi", "Swift", "Maturatta", "Bassi", "Frimesa", "Copacol", "Rezende", "Ceratti", "Coca Cola", "Pepsi", "Fanta", "Sprite", "Guarana Antarctica", "Antarctica", "Kuat", "Schweppes", "Dolly", "Convencao", "Prats", "Del Valle", "Maguary", "Tang", "Clight", "Skol", "Brahma", "Heineken", "Itaipava", "Amstel", "Budweiser", "Original", "Antartica", "Ype", "Omo", "Brilhante", "Ariel", "Surf", "Tixan", "Minuano", "Bombril", "Bom Bril", "Veja", "Pinho Sol", "Lysoform", "Comfort", "Downy", "Mon Bijou", "Qboa", "Sanol", "Dove", "Nivea", "Rexona", "Colgate", "Oral B", "Sorriso", "Close Up", "Johnson", "Pantene", "Seda", "Elseve", "Clear", "Palmolive", "Protex", "Lux", "Monange", "Natura", "Neve", "Personal", "Scott", "Snob", "Mili", "Sempre Livre", "Always", "Intimus", "Pampers", "Huggies", "Turma da Monica", "Neston", "Nescau", "Toddy", "Ovomaltine", "Nutella", "Nescafe", "Dolca", "Lacta", "Garoto", "Hershey", "Arcor", "Mentos", "Trident", "Halls", "Fini", "Oetker", "Yoki", "Hikari", "Qualitat", "Zaeli", "Carrefour", "Taeq", "Pif Paf", "Sinhá", "Sinha", "Uniao", "Caravelas", "Duquesa", "Duas Rodas", "Ducoco", "Sococo", "Gallo", "Andorinha", "Carbonell", "Borges", "Cocinero", "Pomodoro", "Fleischmann", "Royal", "Apti", "Tereza", "Kenko", "Verde Campo", "Jussara", "Polenghi", "Catupiry", "Scala", "Tirolez", "Paulista", "Poços", "Pocos", "Sao Geraldo", "Eleve", "Vabene", "Orquidea", "Lebre", "Nobre", "Mococa", "Cooper", "Bom Sabor", "Mabel", "Isabela", "Fortaleza", "Treloso", "Triunfo", "Zabet", "Ouro Fino", "Santa Amalia", "Pet Quality", "Pedigree", "Whiskas", "Golden", "Premier", "Dog Chow", "Cat Chow", "Friskies"];
+  const BRAND_LIST = ["Garibaldi", "Salton", "Aurora", "Miolo", "Cassero", "Perini", "Batavo", "Presidente", "Piracanjuba", "Italac", "Parmalat", "Ninho", "Nestle", "Danone", "Vigor", "Aurora", "Tirol", "Itambe", "Elege", "Leco", "Qualy", "Doriana", "Claybom", "Delicia", "Becel", "Primor", "Soya", "Liza", "Cocamar", "Salada", "Camil", "Kicaldo", "Tio Joao", "Namorado", "Prato Fino", "Broto Legal", "Pilao", "3 Coracoes", "Melitta", "Santa Clara", "Caboclo", "Dona Benta", "Renata", "Adria", "Piraque", "Vitarella", "Marilan", "Bauducco", "Nissin", "Barilla", "Galo", "Sao Jorge", "Quero", "Predilecta", "Heinz", "Hellmanns", "Knorr", "Maggi", "Sazon", "Kitano", "Cica", "Fugini", "Pomarola", "Elefante", "Sadia", "Perdigao", "Seara", "Friboi", "Swift", "Maturatta", "Bassi", "Frimesa", "Copacol", "Rezende", "Ceratti", "Coca Cola", "Pepsi", "Fanta", "Sprite", "Guarana Antarctica", "Antarctica", "Kuat", "Schweppes", "Dolly", "Convencao", "Prats", "Del Valle", "Maguary", "Tang", "Clight", "Skol", "Brahma", "Heineken", "Itaipava", "Amstel", "Budweiser", "Original", "Antartica", "Ype", "Omo", "Brilhante", "Ariel", "Surf", "Tixan", "Minuano", "Bombril", "Bom Bril", "Veja", "Pinho Sol", "Lysoform", "Comfort", "Downy", "Mon Bijou", "Qboa", "Sanol", "Dove", "Nivea", "Rexona", "Colgate", "Oral B", "Sorriso", "Close Up", "Johnson", "Pantene", "Seda", "Elseve", "Clear", "Palmolive", "Protex", "Lux", "Monange", "Natura", "Neve", "Personal", "Scott", "Snob", "Mili", "Sempre Livre", "Always", "Intimus", "Pampers", "Huggies", "Turma da Monica", "Neston", "Nescau", "Toddy", "Ovomaltine", "Nutella", "Nescafe", "Dolca", "Lacta", "Garoto", "Hershey", "Arcor", "Mentos", "Trident", "Halls", "Fini", "Oetker", "Yoki", "Hikari", "Qualitat", "Zaeli", "Carrefour", "Taeq", "Pif Paf", "Sinhá", "Sinha", "Uniao", "Caravelas", "Duquesa", "Duas Rodas", "Ducoco", "Sococo", "Gallo", "Andorinha", "Carbonell", "Borges", "Cocinero", "Pomodoro", "Fleischmann", "Royal", "Apti", "Tereza", "Kenko", "Verde Campo", "Jussara", "Polenghi", "Catupiry", "Scala", "Tirolez", "Paulista", "Poços", "Pocos", "Sao Geraldo", "Eleve", "Vabene", "Orquidea", "Lebre", "Nobre", "Mococa", "Cooper", "Bom Sabor", "Mabel", "Isabela", "Fortaleza", "Treloso", "Triunfo", "Zabet", "Ouro Fino", "Santa Amalia", "Pet Quality", "H Eggs", "Pedigree", "Whiskas", "Golden", "Premier", "Dog Chow", "Cat Chow", "Friskies"];
   const BRANDS = {}; // 'TIO JOAO' -> 'Tio João'
   BRAND_LIST.forEach((b) => { BRANDS[strip(b)] = b; });
   const BRAND_FIX = { 'Tio Joao': 'Tio João', 'Pilao': 'Pilão', '3 Coracoes': '3 Corações', 'Sao Jorge': 'São Jorge', 'Italac': 'Italac', 'Hellmanns': "Hellmann's", 'Nestle': 'Nestlé', 'Itambe': 'Itambé', 'Delicia': 'Delícia', 'Ype': 'Ypê', 'Sinha': 'Sinhá', 'Pocos': 'Poços', 'Orquidea': 'Orquídea', 'Quero': 'Quero', 'Sao Geraldo': 'São Geraldo', 'Perdigao': 'Perdigão', 'Convencao': 'Convenção', 'Guarana Antarctica': 'Guaraná Antarctica', 'Antartica': 'Antarctica', 'Monica': 'Mônica', 'Oral B': 'Oral-B', 'Qualitat': 'Qualitat', 'Uniao': 'União', 'Santa Amalia': 'Santa Amália', 'Mon Bijou': 'Mon Bijou' };
@@ -158,12 +158,13 @@
     });
     return best && n === 1 ? best.v : w;
   }
+  const OCRMAP = { NENT: 'MANT', KHENT: 'MANT', MENT: 'MANT', ILHO: 'MILHO', TRB: 'TAB', TAS: 'TAB', BAYAVO: 'BATAVO', 'BATAYO': 'BATAVO' };
   // Corrige o nome lido por OCR palavra por palavra (letras trocadas, números no lugar de letras, lixo de linha vizinha)
   function ocrFix(name, extraNames, vocab) {
     vocab = vocab || vocabOf(extraNames);
     let s = strip(name).replace(/\b(?:DESC\w*|ITEN?)\b\.*:?\s*\d*/g, ' ').replace(/\s+/g, ' ').trim();
     s = s.replace(/\b(\d[.,]\d{3})6\b/g, '$1G').replace(/\b(100|150|200|250|300|350|400|450|500|900)[46]\b/g, '$1G');
-    const out = s.split(' ').map((w) => (/^[A-Z0-9]+$/.test(w) && /[A-Z]/.test(w) ? fixWord(w, vocab) : w));
+    const out = s.split(' ').map((w) => (OCRMAP[w] || (/^[A-Z0-9]+$/.test(w) && /[A-Z]/.test(w) ? fixWord(w, vocab) : w)));
     return out.join(' ');
   }
 
@@ -178,8 +179,14 @@
     let cm = s.match(/\bC\s*\/\s*(\d{1,3})\b/) || s.match(/\b(\d{1,3})\s*(?:UN|UND|UNID|UNIDADES?)\b/);
     if (cm) { count = +cm[1]; s = s.replace(cm[0], ' '); }
     if (/\b(?:DZ|DUZIA)\b/.test(s)) { count = count || 12; s = s.replace(/\b(?:DZ|DUZIA)\b/g, ' '); }
+    // ovos: "20U", "X20", "BANDEJA 20", "20 OVOS" ou o número solto de bandeja (6, 10, 12, 15, 18, 20, 24, 30, 60)
+    if (!count && /\bOVOS?\b/.test(s) && !/\b(?:PASCOA|CHOCOLATES?)\b/.test(s)) {
+      const ep = s.match(/\b(\d{1,3})\s*U(?:N|ND|NID)?\b/) || s.match(/\bX\s*(\d{1,3})\b/) || s.match(/\b(?:BANDEJA|BDJ|BJ|CARTELA|CART)\s*(?:C\s*\/?\s*)?(\d{1,3})\b/) || s.match(/\b(\d{1,3})\s*OVOS?\b/) || s.match(/\b(60|30|24|20|18|15|12|10|6)\b/);
+      const n = ep ? +ep[1] : 0;
+      if (n >= 4 && n <= 90) { count = n; s = s.replace(ep[0], ' '); }
+    }
     s = s.replace(/\bC\s*\/\s*/g, 'COM ').replace(/\bS\s*\/\s*/g, 'SEM ').replace(/[^A-Z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
-    let words = s.split(' ').filter((w) => w && !/^(UN|UND|UNID|UNIDADE|UNIDADES|KG|G|GR|L|LT|ML)$/.test(w));
+    let words = s.split(' ').filter((w) => w && !/^(UN|UND|UNID|UNIDADE|UNIDADES|KG|G|GR|L|LT|ML|BDJ)$/.test(w));
     words = words.map((w) => ABBR[w] || w);
     const eggs = words.some((w) => w === 'OVO' || w === 'OVOS') && !words.some((w) => /^(PASCOA|CHOCOLATE|CHOCOLATES)$/.test(w));
     let name = titleCase(words).join(' ').trim();

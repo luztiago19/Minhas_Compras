@@ -70,7 +70,7 @@
   async function toCanvas(src) {
     if (src instanceof HTMLCanvasElement) return src;
     const url = URL.createObjectURL(src);
-    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('Imagem inválida')); i.src = url; });
+    const img = await new Promise((res, rej) => { const i = new Image(), tm = setTimeout(() => rej(new Error('A imagem não abriu (arquivo inválido ou pesado demais)')), root.IMG_TIMEOUT || 25000); i.onload = () => { clearTimeout(tm); res(i); }; i.onerror = () => { clearTimeout(tm); rej(new Error('Imagem inválida')); }; i.src = url; });
     const c = document.createElement('canvas');
     c.width = img.naturalWidth; c.height = img.naturalHeight;
     c.getContext('2d').drawImage(img, 0, 0);
@@ -145,7 +145,27 @@
   }
 
   // Foto: lê a imagem inteira; se o total não fecha, tenta de novo recortando o papel, e fica com a melhor leitura.
+  const kwScore = (t) => (String(t || '').match(/DANFE|NFC|CNPJ|TOTAL|VALOR|R\$|QTDE?|DESCRI|CUPOM|FISCAL|ITEM|CHAVE/gi) || []).length;
+  function rotateCanvas(c, deg) {
+    const o = document.createElement('canvas'), r = deg % 180 !== 0;
+    o.width = r ? c.height : c.width; o.height = r ? c.width : c.height;
+    const x = o.getContext('2d'); x.translate(o.width / 2, o.height / 2); x.rotate((deg * Math.PI) / 180); x.drawImage(c, -c.width / 2, -c.height / 2);
+    return o;
+  }
+  // Foto torta (de lado ou de cabeça para baixo): se a leitura não achou nada, tenta girar 90 e 270 graus
   async function readPhoto(file, progress) {
+    const d = await readPhoto0(file, progress);
+    if (d.items.length || kwScore(d.rawText) >= 3) return d;
+    let best = d;
+    for (const deg of [90, 270]) {
+      try {
+        const d2 = await readPhoto0(rotateCanvas(await toCanvas(file), deg), progress);
+        if (d2.items.length > best.items.length || (!best.items.length && kwScore(d2.rawText) > kwScore(best.rawText))) best = d2;
+      } catch (e) { /* tenta o próximo ângulo */ }
+    }
+    return best;
+  }
+  async function readPhoto0(file, progress) {
     if (root.Native && root.Native.canOcr) {
       try { const d = await readPhotoNative(file, progress); if (d.items.length) return d; } catch (e) { /* cai para o OCR do navegador */ }
     }
@@ -154,7 +174,11 @@
     for (let t = 0; t < tries.length; t++) {
       const canvas = await preprocess(file, tries[t]);
       if (tries[t].crop && !canvas.cropped) continue;
-      const text = await ocrCanvas(canvas, progress ? (p) => progress((t + p) / tries.length) : null);
+      let text = await ocrCanvas(canvas, progress ? (p) => progress((t + p) / tries.length) : null);
+      if (root.Parser.looksDanfe && root.Parser.looksDanfe(text)) { // DANFE: a tabela de itens sai bem melhor em modo "bloco"
+        const w = await getWorker(); await w.setParameters({ tessedit_pageseg_mode: '6' });
+        try { const r6 = (await w.recognize(canvas)).data.text || ''; if (r6.trim()) text = r6; } finally { await w.setParameters({ tessedit_pageseg_mode: '4' }); }
+      }
       const draft = root.Parser.parseAny(text);
       const sc = scoreDraft(draft);
       if (!best || sc.score > best.sc.score) best = { draft, sc };
@@ -239,14 +263,29 @@
 
   /* ---------- entrada única ---------- */
   // Retorna { kind: 'xml'|'text', draft, name }
+  // Descobre o tipo olhando o início do arquivo (galeria e câmera às vezes mandam arquivo sem extensão nem tipo)
+  async function sniff(file) {
+    try {
+      const b = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+      const s = String.fromCharCode.apply(null, Array.from(b));
+      if (s.startsWith('%PDF')) return 'pdf';
+      if (b[0] === 0xff && b[1] === 0xd8) return 'image';
+      if (s.startsWith('\x89PNG') || s.startsWith('GIF8') || (s.startsWith('RIFF') && s.slice(8, 12) === 'WEBP') || s.slice(4, 8) === 'ftyp' || s.startsWith('BM')) return 'image';
+      const t = (await file.slice(0, 300).text()).trimStart();
+      if (t.startsWith('<?xml') || /^<(nfeProc|NFe|procNFe)/i.test(t)) return 'xml';
+    } catch (e) { /* segue pelo nome */ }
+    return '';
+  }
   async function readFile(file, progress) {
     const name = file.name || 'arquivo';
-    const lower = name.toLowerCase();
-    if (lower.endsWith('.xml') || /xml/.test(file.type)) {
+    const lower = name.toLowerCase(), kind0 = await sniff(file);
+    const isXml = kind0 === 'xml' || (!kind0 && (lower.endsWith('.xml') || /xml/.test(file.type)));
+    const isPdf = kind0 === 'pdf' || (!kind0 && (lower.endsWith('.pdf') || file.type === 'application/pdf'));
+    if (isXml) {
       const draft = root.Parser.parseNFeXML(await file.text());
       return { kind: 'xml', draft, name };
     }
-    if (lower.endsWith('.pdf') || file.type === 'application/pdf') {
+    if (isPdf) {
       const pdf = await openPdf(file);
       let text = await pdfText(pdf);
       let source = 'pdf';
@@ -259,11 +298,9 @@
       draft.source = source;
       return { kind: 'text', draft, name };
     }
-    if (/^image\//.test(file.type) || /\.(jpe?g|png|webp|heic)$/i.test(lower)) {
-      const draft = await readPhoto(file, progress);
-      return { kind: 'text', draft, name };
-    }
-    throw new Error('Formato não suportado: use XML, PDF ou imagem.');
+    // qualquer outra coisa vinda da galeria/câmera é tratada como imagem; se a leitura falhar, o app abre a conferência vazia com a foto ao lado
+    const draft = await readPhoto(file, progress);
+    return { kind: 'text', draft, name };
   }
 
   // Busca a página pública da nota (só se o navegador permitir; senão o usuário cola o texto)

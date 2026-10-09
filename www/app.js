@@ -69,13 +69,18 @@
     const t = $('#toast'); t.textContent = msg; t.hidden = false;
     clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 3000);
   }
+  const verLabel = () => 'Versão ' + (self.APP_VERSION || '?') + (self.APP_BUILD ? ' · build ' + self.APP_BUILD : ' · web');
   function openSheet(title, html, opts) {
     const sh = $('#sheet');
     sh.innerHTML = `<div class="scrim" ${opts && opts.lock ? '' : 'data-act="close"'}></div><div class="panel" role="dialog" aria-label="${esc(title)}"><div class="grab"><h2>${esc(title)}</h2>${opts && opts.lock ? '' : '<button class="x" data-act="close" aria-label="Fechar">×</button>'}</div>${html}</div>`;
     sh.hidden = false; document.body.style.overflow = 'hidden';
   }
+  document.addEventListener('focusin', (e) => {
+    const el = e.target; if (!el || !el.closest || !el.closest('#sheet') || !/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) return;
+    setTimeout(() => { try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) {} }, 320);
+  });
   let stopCam = null, camTok = 0, qrPending = null;
-  function closeSheet() { camTok++; if (stopCam) { stopCam(); stopCam = null; } const sh = $('#sheet'); sh.hidden = true; sh.innerHTML = ''; document.body.style.overflow = ''; RV = null; OF = null; }
+  function closeSheet() { camTok++; if (stopCam) { stopCam(); stopCam = null; } const sh = $('#sheet'); sh.hidden = true; sh.innerHTML = ''; document.body.style.overflow = ''; if (RV && RV.photoUrl) { try { URL.revokeObjectURL(RV.photoUrl); } catch (e) { /* ok */ } } RV = null; OF = null; }
   function copyText(t) {
     if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(t);
     return Promise.reject(new Error('sem clipboard'));
@@ -117,7 +122,7 @@
   const views = {};
 
   views.compras = (top, main) => {
-    top.innerHTML = `<div><h1>Compras</h1><div class="sub">${persistent ? 'Salvo neste aparelho' : 'Modo temporário: os dados somem ao fechar'}</div></div><button class="btn primary" data-act="import">${svg('plus', 'icon')}Importar</button>`;
+    top.innerHTML = `<div><h1>Compras</h1><div class="sub">${persistent ? 'Salvo neste aparelho' : 'Modo temporário: os dados somem ao fechar'} · ${verLabel()}</div></div><button class="btn primary" data-act="import">${svg('plus', 'icon')}Importar</button>`;
     if (!S.purchases.length) {
       main.innerHTML = empty('Nenhuma compra ainda', 'Importe notas baixadas do portal da Fazenda (XML ou PDF), tire foto de um cupom ou digite uma compra. Com 2 ou 3 notas o app já começa a comparar preços.',
         `<button class="btn primary" data-act="import">${svg('plus', 'icon')}Importar notas</button><button class="btn" data-act="demo">Ver com dados de exemplo</button>`);
@@ -235,7 +240,7 @@
     const names = Array.from(new Set(S.purchases.map((p) => p.marketName).filter(Boolean)));
     openSheet('Ofertas e preços', `<datalist id="dl-m">${names.map((m) => `<option value="${esc(m)}">`).join('')}</datalist>
       <div class="stack"><div class="note">Fotografe um folheto, banner ou a etiqueta de preço no mercado. O app lê os produtos e já compara com o que você pagou.</div>
-        <div class="pick"><div class="btn block" style="justify-content:flex-start;padding:14px">${svg('camera', 'icon')}<span style="text-align:left"><b>Tirar foto agora</b><br><span style="font-weight:400;font-size:13px">Abre a câmera (folheto, banner ou etiqueta de preço)</span></span></div><input id="f-offer-cam" type="file" accept="image/*" capture="environment" aria-label="Tirar foto do folheto, banner ou etiqueta"></div>
+        ${Native.canCamera ? `<button class="btn block" data-act="cam-offer" style="justify-content:flex-start;padding:14px">${svg('camera', 'icon')}<span style="text-align:left"><b>Tirar foto agora</b><br><span style="font-weight:400;font-size:13px">Abre a câmera (folheto, banner ou etiqueta de preço)</span></span></button>` : `<div class="pick"><div class="btn block" style="justify-content:flex-start;padding:14px">${svg('camera', 'icon')}<span style="text-align:left"><b>Tirar foto agora</b><br><span style="font-weight:400;font-size:13px">Abre a câmera (folheto, banner ou etiqueta de preço)</span></span></div><input id="f-offer-cam" type="file" accept="image/*" capture="environment" aria-label="Tirar foto do folheto, banner ou etiqueta"></div>`}
         <div class="pick"><div class="btn block primary" style="justify-content:flex-start;padding:14px">${svg('file', 'icon')}<span style="text-align:left"><b>Foto, imagem ou PDF do folheto</b><br><span style="font-weight:400;font-size:13px">Câmera, galeria ou arquivo. Várias páginas de uma vez (PDF até 12 páginas)</span></span></div><input id="f-offer" type="file" accept="image/*,.pdf,application/pdf" multiple aria-label="Foto ou PDF do folheto, banner ou etiqueta"></div>
         ${sampleNS && sampleImg ? `<label class="check-line"><input type="checkbox" id="of-ai" ${ui.ofAI === false ? '' : 'checked'}> Ler com o Claude (mais preciso em folhetos; usa sua cota de uso)</label>` : '<div class="note">Leitura por OCR no aparelho. Em folhetos muito coloridos, confira os itens.</div>'}
         <div id="of-prog" class="note" hidden></div>
@@ -417,7 +422,7 @@
     };
     h += shown.length ? `<div class="list">${shown.map(row).join('')}</div>` : `<div class="note">Nenhum produto nesta faixa.</div>`;
     const noRate = all.filter((a) => !a.rate && !a.p.ignore), ign = all.filter((a) => a.p.ignore);
-    if (noRate.length) h += `<div class="group-h"><span>Aguardando a 2ª compra</span><span>${noRate.length}</span></div><div class="list">${noRate.map((a) => `<button class="row" data-act="stock" data-key="${esc(a.p.key)}"><div class="grow"><div class="t">${esc(a.p.name)}</div><div class="s">Comprado ${fdate(a.last.date)} · ${fq(a.qtyTotal)} ${ulabel(a.last.unit)}</div></div></button>`).join('')}</div>`;
+    if (noRate.length) h += `<div class="group-h"><span>Aguardando a 2ª compra</span><span>${noRate.length}</span></div><div class="list">${noRate.map((a) => `<button class="row" data-act="stock" data-key="${esc(a.p.key)}"><div class="grow"><div class="t">${esc(a.p.name)}</div><div class="s">Comprado ${fdate((a.lastBuy || a.last).date)} · ${fq(a.qtyTotal)} ${ulabel(a.last.unit)}</div></div></button>`).join('')}</div>`;
     if (ign.length) h += `<div class="group-h"><span>Ignorados na lista</span><span>${ign.length}</span></div><div class="list">${ign.map((a) => `<button class="row" data-act="stock" data-key="${esc(a.p.key)}"><div class="grow"><div class="t">${esc(a.p.name)}</div></div><span class="badge flat">ignorado</span></button>`).join('')}</div>`;
     main.innerHTML = h;
   };
@@ -434,7 +439,7 @@
       <div class="card stack"><div class="lbl">Dados de exemplo</div><div class="note">Cerca de 14 meses de compras fictícias em 3 mercados, para testar o app.</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="demo">Carregar exemplo</button>${hasDemo ? '<button class="btn" data-act="undemo">Remover exemplo</button>' : ''}</div></div>
       <div class="card stack"><div class="lbl">Apagar tudo</div><div class="note">Remove compras, produtos e lista deste aparelho.</div><button class="btn danger" data-act="wipe">Apagar todos os dados</button></div>
-      <div class="note" style="text-align:center">Cesta Certa 0.1 · ${persistent ? 'dados salvos no aparelho' : 'modo temporário (sem armazenamento)'}</div>`;
+      <div class="note" style="text-align:center">Cesta Certa ${verLabel()} · ${persistent ? 'dados salvos no aparelho' : 'modo temporário (sem armazenamento)'}</div>`;
   };
 
   function renderTabs() {
@@ -458,7 +463,8 @@
     const rows = r.rows.map((x) => {
       const i = x.item, b = x.best;
       let line, badge;
-      if (x.status === 'none') { line = 'Sem outra compra deste produto no período'; badge = '<span class="badge flat">sem histórico</span>'; }
+      if (x.status === 'promo') { line = x.promoRef ? `Fora da comparação · normalmente ${brl(x.promoRef)}${x.promoMin ? ' (menor já pago ' + brl(x.promoMin) + ')' : ''}` : 'Fora da comparação'; badge = '<span class="badge acc">super promoção</span>'; }
+      else if (x.status === 'none') { line = 'Sem outra compra deste produto no período'; badge = '<span class="badge flat">sem histórico</span>'; }
       else if (x.status === 'best') { line = `Menor preço do período · outro: ${brl(b.unitPrice)} em ${esc(b.marketName)} (${fdate(b.date)})`; badge = '<span class="badge down">menor preço</span>'; }
       else { line = `Menor: ${brl(b.unitPrice)} em ${esc(b.marketName)} (${fdate(b.date)})`; badge = `<span class="badge up">${pct(x.diff)}</span>`; }
       const altLine = x.alt ? `<div class="s">Outra marca: ${esc(x.alt.brand || x.alt.name)} saiu por ${brl(x.alt.item.unitPrice)} em ${esc(x.alt.item.marketName)} (${fdate(x.alt.item.date)})</div>` : '';
@@ -469,6 +475,7 @@
         <div class="leader"><span class="n">Você pagou</span><span class="dots"></span><span class="v">${brl(r.paid)}</span></div>
         <div class="leader best"><span class="n">Nos melhores preços</span><span class="dots"></span><span class="v">${brl(r.ideal)}</span></div>
         <div class="leader"><span class="n">Economia possível</span><span class="dots"></span><span class="v">${brl(r.saving)}</span></div>
+        ${r.promoCount ? `<div class="note">Super promoções nesta compra: ${r.promoCount} ${r.promoCount === 1 ? 'item' : 'itens'}, fora da comparação de preços${r.promoSaving > 0 ? `. Você economizou cerca de <b>${brl(r.promoSaving)}</b> contra o preço médio de sempre` : ''}.</div>` : ''}
         ${r.altSaving > 0 ? `<div class="note">Trocando de marca em alguns itens, daria para economizar mais ${brl(r.altSaving)}.</div>` : ''}
         <div class="note">${none ? 'Ainda não há outra compra desses produtos no período. Com mais notas, a comparação aparece aqui.' : `${r.covered} de ${r.rows.length} itens têm preço de outras compras no período. Os demais entram pelo valor que você pagou.`}</div>
         <div class="chips" role="group" aria-label="Período da comparação">${chips.map((c) => `<button class="chip ${m === c[0] ? 'on' : ''}" data-act="cmpwin" data-v="${c[0]}">${c[1]}</button>`).join('')}</div></div>
@@ -488,18 +495,18 @@
 
   function histHTML(key) {
     const a = an()[key]; if (!a) return '';
-    const all = a.its.slice().sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : 0)); // mais recente primeiro
+    const all = (a.all || a.its).slice().sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : 0)); // mais recente primeiro
     const from = C.addDays(today(), -365), f = ui.hist;
     const list = f === '5' ? all.slice(0, 5) : f === 'ano' ? all.filter((i) => i.date >= from) : all;
     const city = {}; S.purchases.forEach((p) => { city[p.id] = p.city; });
     const chips = [['5', 'Últimas 5'], ['ano', 'Último ano'], ['tudo', 'Tudo (' + all.length + ')']];
     const rows = list.map((i) => {
-      const older = all[all.indexOf(i) + 1], chg = older ? (i.unitPrice - older.unitPrice) / older.unitPrice : null;
-      const b = chg == null ? '' : `<span class="badge ${chg > 0.005 ? 'up' : chg < -0.005 ? 'down' : 'flat'}">${pct(chg)}</span>`;
+      const older = all.slice(all.indexOf(i) + 1).find((o) => !o.promo), chg = older && !i.promo ? (i.unitPrice - older.unitPrice) / older.unitPrice : null;
+      const b = i.promo ? '<span class="badge acc">super promoção</span>' : chg == null ? '' : `<span class="badge ${chg > 0.005 ? 'up' : chg < -0.005 ? 'down' : 'flat'}">${pct(chg)}</span>`;
       const c = city[i.purchaseId];
       return `<div class="row"><div class="grow"><div class="t">${esc(i.marketName)}</div><div class="s">${fdate(i.date)} · ${fq(i.qty)} ${ulabel(i.unit)}${c ? ' · ' + esc(c) : ''}</div></div><div class="r"><div class="price">${brl(i.unitPrice)}</div><div style="margin-top:3px">${b}</div></div></div>`;
     }).join('');
-    const prices = list.map((i) => i.unitPrice);
+    const prices = (list.filter((i) => !i.promo).length ? list.filter((i) => !i.promo) : list).map((i) => i.unitPrice);
     return `<div class="group-h"><span>Histórico de compras</span><span>${list.length} de ${all.length}</span></div>
       <div class="chips">${chips.map((c) => `<button class="chip ${f === c[0] ? 'on' : ''}" data-act="hist" data-v="${c[0]}">${c[1]}</button>`).join('')}</div>
       ${list.length ? `<div class="note">Menor ${brl(Math.min(...prices))} · maior ${brl(Math.max(...prices))} · a variação compara com a compra anterior</div><div class="list">${rows}</div>` : '<div class="note">Nenhuma compra nesse período.</div>'}`;
@@ -561,8 +568,8 @@
         <button class="btn block primary" data-act="scan" style="justify-content:flex-start;padding:14px">${svg('qr', 'icon')}<span style="text-align:left"><b>Escanear QR code da nota</b><br><span style="font-weight:400;font-size:13px">Aponte a câmera para o QR do cupom</span></span></button>
         <div class="pick"><div class="btn block" style="justify-content:flex-start;padding:14px">${svg('file', 'icon')}<span style="text-align:left"><b>Arquivos da Fazenda</b><br><span class="note">XML (exato) ou PDF da NFC-e, vários de uma vez</span></span></div>
           <input id="f-doc" type="file" accept=".xml,.pdf,text/xml,application/xml,application/pdf" multiple aria-label="Escolher arquivos XML ou PDF"></div>
-        <div class="pick"><div class="btn block" style="justify-content:flex-start;padding:14px">${svg('camera', 'icon')}<span style="text-align:left"><b>Tirar foto da nota</b><br><span class="note">Abre a câmera. Lê o texto no aparelho (OCR) e pede conferência</span></span></div>
-          <input id="f-cam" type="file" accept="image/*" capture="environment" aria-label="Tirar foto da nota"></div>
+        ${Native.canCamera ? `<button class="btn block" data-act="cam-nota" style="justify-content:flex-start;padding:14px">${svg('camera', 'icon')}<span style="text-align:left"><b>Tirar foto da nota</b><br><span class="note">Abre a câmera. Lê o texto no aparelho (OCR) e pede conferência</span></span></button>` : `<div class="pick"><div class="btn block" style="justify-content:flex-start;padding:14px">${svg('camera', 'icon')}<span style="text-align:left"><b>Tirar foto da nota</b><br><span class="note">Abre a câmera. Lê o texto no aparelho (OCR) e pede conferência</span></span></div>
+          <input id="f-cam" type="file" accept="image/*" capture="environment" aria-label="Tirar foto da nota"></div>`}
         <div class="pick"><div class="btn block" style="justify-content:flex-start;padding:14px">${svg('file', 'icon')}<span style="text-align:left"><b>Foto ou print da galeria</b><br><span class="note">Escolha uma ou várias imagens já salvas</span></span></div>
           <input id="f-img" type="file" accept="image/*" multiple aria-label="Escolher foto da nota na galeria"></div>
         <button class="btn block" data-act="paste" style="justify-content:flex-start;padding:14px">${svg('link', 'icon')}<span style="text-align:left"><b>Link ou texto da nota (QR code)</b><br><span class="note">Abra a nota pelo QR code, copie o texto e cole aqui</span></span></button>
@@ -628,7 +635,7 @@
       const text = await Promise.race([Importers.fetchPage(q.url), new Promise((_, rej) => setTimeout(() => rej(new Error('demorou')), 8000))]);
       const d = Parser.parseSefazText(text + '\n' + q.url);
       if (!d.items.length) throw new Error('sem itens');
-      d.id = d.id || q.chave; if (!d.date) d.date = today();
+      d.id = d.id || q.chave; if (!d.date) guessDate(d);
       qrPending = null; closeSheet(); refineDraft(d); openReview(d, { title: 'Conferir nota' });
     } catch (e) { openPaste(); }
   }
@@ -657,7 +664,7 @@
       if (um && v.replace(um[0], '').trim().length < 20) return fail('Abri o link, mas a Fazenda não mostrou os itens. Links só com a chave de acesso (chNFe=...) pedem verificação no navegador. Use o botão de QR code, que abre a nota completa, ou tire um print da nota aberta e importe como foto.');
       return fail('Não achei itens nesse texto. Confira se copiou a nota inteira.');
     }
-    if (!d.date) d.date = today();
+    if (!d.date) guessDate(d);
     if (qrPending) { if (!d.id) d.id = qrPending.chave; if (!d.marketCnpj) d.marketCnpj = qrPending.chave.slice(6, 20); qrPending = null; }
     refineDraft(d);
     openReview(d, { title: 'Conferir nota' });
@@ -676,8 +683,12 @@
         if (r.kind === 'xml') {
           const res = C.addPurchase(S, r.draft);
           if (res.duplicate) stat.dup++; else if (res.empty) stat.fail.push(f.name); else stat.added++;
-        } else queue.push({ draft: r.draft, name: f.name });
-      } catch (e) { stat.fail.push(f.name + ' (' + e.message + ')'); }
+        } else { if (r.draft.source === 'ocr' && r.draft.photoFile === undefined) r.draft.photoFile = f; queue.push({ draft: r.draft, name: f.name }); }
+      } catch (e) {
+        const isDoc = /\.xml$/i.test(f.name || '');
+        if (isDoc) stat.fail.push(f.name + ' (' + e.message + ')');
+        else { stat.manual = (stat.manual || 0) + 1; queue.push({ draft: { items: [], source: 'ocr', marketName: '', readError: (e && e.message) || String(e), photoFile: f }, name: f.name }); }
+      }
       if (i % 20 === 19) await new Promise((r) => setTimeout(r, 0));
     }
     dirty(); if (stat.added) await persist();
@@ -686,9 +697,22 @@
     if (stat.added) parts.push(stat.added + ' importada' + (stat.added > 1 ? 's' : ''));
     if (stat.dup) parts.push(stat.dup + ' já existia' + (stat.dup > 1 ? 'm' : ''));
     if (stat.fail.length) parts.push(stat.fail.length + ' com erro');
+    if (stat.manual) parts.push(stat.manual + ' para preencher à mão');
     if (parts.length) toast(parts.join(' · '));
     if (stat.fail.length) console.warn('Falhas na importação:', stat.fail);
-    reviewQueue(queue, 0);
+    reviewQueue(mergeDanfe(queue), 0);
+  }
+  // várias folhas da mesma DANFE (mesma chave, ou folha 1/2 + 2/2) viram uma compra só
+  function mergeDanfe(queue) {
+    const by = {}, out = [];
+    queue.forEach((q) => {
+      const d = q.draft, key = d.danfe ? (d.id || (d.folha ? 'f' + d.folha[1] + ':' + (d.marketCnpj || '') : '')) : '';
+      if (!key) { out.push(q); return; }
+      const g = by[key];
+      if (!g) { by[key] = q; d.folhas = 1; out.push(q); return; }
+      const gd = g.draft; gd.items = gd.items.concat(d.items); gd.printedTotal = gd.printedTotal || d.printedTotal; gd.id = gd.id || d.id; gd.date = gd.date || d.date; gd.marketCnpj = gd.marketCnpj || d.marketCnpj; gd.folhas = (gd.folhas || 1) + 1; gd.rawText = (gd.rawText || '') + '\n' + (d.rawText || '');
+    });
+    return out;
   }
 
   // Compara nomes lidos por OCR com os produtos que você já comprou (código de barras, correção aprendida, nome parecido)
@@ -720,10 +744,18 @@
   }
   function refineDraft(d) { _voc = null; const ocr = d.source === 'ocr' || d.source === 'pdf'; d.items.forEach((it) => suggestStd(it, ocr)); }
 
+  // Sem data na nota: usa o mês da chave de acesso quando dá; o dia você confere
+  function guessDate(d) {
+    const cm = C.chaveMonth(d.id || (qrPending && qrPending.chave)), t = today();
+    d.dateGuess = true;
+    if (cm && cm !== t.slice(0, 7)) { d.date = cm + '-01'; d.dateMsg = `Pela chave da nota, a compra foi em ${cm.slice(5)}/${cm.slice(0, 4)}. Não achei o dia: confira.`; }
+    else { d.date = t; d.dateMsg = cm ? 'A página da Fazenda não mostra a data. Coloquei a de hoje (o mês confere com a chave da nota). Confira o dia.' : 'Não consegui ler a data da nota. Coloquei a de hoje, confira.'; }
+  }
+  const itemsOfPurchase = (p) => S.items.filter((i) => i.purchaseId === p.id).map((i) => { const o = i.orig || i; return { name: i.name, std: prettyOf(i.productKey, i.name), brand: C.brandOf(S.products.find((x) => x.key === i.productKey)), brandAuto: false, keepStd: true, ean: i.ean, scode: i.scode || '', promo: !!i.promo, qty: o.qty, unit: o.unit, unitPrice: o.unitPrice, total: i.total, disc: i.disc || 0 }; });
   function reviewQueue(q, i) {
     if (i >= q.length) return;
     const d = q[i].draft;
-    if (!d.date) { d.date = today(); d.dateGuess = true; }
+    if (!d.date) guessDate(d);
     refineDraft(d);
     openReview(d, { title: `Conferir nota${q.length > 1 ? ' (' + (i + 1) + '/' + q.length + ')' : ''}`, skip: true, onDone: () => setTimeout(() => reviewQueue(q, i + 1), 150) });
   }
@@ -737,12 +769,19 @@
     const dt = C.round(C.num(draft.discount) || 0, 2);
     RV = { draft, items, opts, discTotal: dt, drows: dt > 0 ? [{ item: null, amt: '' }] : [] };
     const markets = Array.from(new Set(S.purchases.map((p) => p.marketName))).sort();
+    const cnpjOk = String(draft.marketCnpj || '').replace(/\D/g, '').length === 14;
+    const mk = cnpjOk ? C.suggestMarket(S, draft.marketCnpj, draft.marketName, draft.city) : { name: draft.marketName || '', known: true };
+    RV.mk = mk; RV.razao = draft.marketName || '';
     const names = S.products.map((p) => p.name).sort();
     const warn = draft.source === 'ocr' || draft.source === 'pdf';
     openSheet(opts.title || 'Nova compra', `
+      ${draft.readError ? `<div class="note warn">Não consegui ler esta imagem (${esc(draft.readError)}). Veja a foto abaixo e preencha os itens, ou pule.</div>` : (draft.source === 'ocr' && draft.photoFile === undefined && !(draft.items && draft.items.length)) ? '<div class="note warn">Não encontrei itens na leitura. Adicione os itens à mão.</div>' : ''}
+      ${draft.folha && draft.folha[1] > (draft.folhas || 1) ? `<div class="note warn">Esta nota tem ${draft.folha[1]} folhas e vieram ${draft.folhas || 1}. Faltam itens: se tem as outras folhas, importe todas de uma vez (selecione as fotos juntas). Se importar depois, os itens são somados a esta compra.</div>` : ''}
+      ${draft.photoFile ? `<details ${draft.readError || !(draft.items && draft.items.length) || (draft.items || []).some((i) => i.check) ? 'open' : ''}><summary class="note">Foto da nota</summary><img id="rv-photo" alt="Foto da nota" style="max-width:100%;border-radius:10px"></details>` : ''}
       ${draft.source === 'page' ? `<div class="note warn">Nota lida da página da Fazenda. Os nomes vêm como o mercado cadastrou e não há código de barras. Confira antes de salvar.</div>` : warn ? `<div class="note warn">Confira os itens lidos. Linhas em amarelo têm números que não fecham.</div>` : ''}
-      <div class="field"><label for="rv-m">Mercado</label><input id="rv-m" class="in" list="dl-m" value="${esc(draft.marketName || '')}" placeholder="Nome do mercado" autocomplete="off"></div>
-      <div class="field"><label for="rv-d">Data</label><input id="rv-d" class="in" type="date" value="${esc(draft.date || today())}">${draft.dateGuess ? '<div class="note warn">Não consegui ler a data da nota. Coloquei a de hoje, confira.</div>' : ''}</div>
+      <div id="rv-sum" class="rvsum"></div>
+      <div class="field"><label for="rv-m">Mercado</label><input id="rv-m" class="in" list="dl-m" value="${esc(mk.name || draft.marketName || '')}" placeholder="Nome do mercado" autocomplete="off">${cnpjOk && !mk.known ? `<div class="note" id="rv-mnote">${mk.fromRede ? 'Parece outra loja da rede ' + esc(mk.fromRede) + '. Confirme ou ajuste o nome.' : 'Nome vindo da razão social. Digite o nome que você usa (ex.: SMC): vou lembrar para este CNPJ.'}</div>` : ''}</div>
+      <div class="field"><label for="rv-d">Data</label><input id="rv-d" class="in" type="date" value="${esc(draft.date || today())}">${draft.dateGuess ? `<div class="note warn">${esc(draft.dateMsg || 'Não consegui ler a data da nota. Coloquei a de hoje, confira.')}</div>` : ''}</div>
       <datalist id="dl-m">${markets.map((m) => `<option value="${esc(m)}">`).join('')}</datalist><datalist id="dl-p">${names.map((m) => `<option value="${esc(m)}">`).join('')}</datalist><datalist id="dl-b">${allBrands().map((m) => `<option value="${esc(m)}">`).join('')}</datalist>
       <div id="rv-items"></div>
       <button class="btn sm" data-act="rv-add" style="align-self:flex-start">${svg('plus', 'icon')} Adicionar item</button>
@@ -750,8 +789,18 @@
       <div class="leader"><span class="n"><b>Total a pagar</b></span><span class="dots"></span><span class="v" id="rv-tot"></span></div>
       ${draft.printedTotal ? '<div id="rv-chk" class="note"></div>' : ''}
       ${draft.rawText ? `<details><summary class="note">Texto lido da nota</summary><pre class="note" style="white-space:pre-wrap">${esc(draft.rawText)}</pre></details>` : ''}
-      <div class="foot">${opts.skip ? '<button class="btn" data-act="rv-skip">Pular</button>' : '<button class="btn" data-act="close">Cancelar</button>'}<button class="btn primary" data-act="rv-save">Salvar compra</button></div>`, { lock: !!opts.skip });
+      <div class="foot end">${opts.skip ? '<button class="btn" data-act="rv-skip">Pular</button>' : '<button class="btn" data-act="close">Cancelar</button>'}<button class="btn primary" data-act="rv-save">Salvar compra</button></div>`, { lock: !!opts.skip });
     drawItems(); drawDisc();
+    if (cnpjOk && !mk.known && !mk.fromRede && typeof fetch === 'function') {
+      const rvRef = RV, cn = String(draft.marketCnpj).replace(/\D/g, '');
+      Promise.race([fetch('https://brasilapi.com.br/api/cnpj/v1/' + cn).then((r) => (r.ok ? r.json() : null)), new Promise((r) => setTimeout(() => r(null), 5000))]).then((j) => {
+        const fan = j && String(j.nome_fantasia || '').trim(); if (!fan || RV !== rvRef) return;
+        const inp = $('#rv-m'); if (!inp || inp.value !== mk.name) return; // você já mexeu no nome
+        inp.value = fan.replace(/\b([A-ZÀ-Ý])([A-ZÀ-Ý]+)\b/g, (m, x, y) => (m.length > 3 ? x + y.toLowerCase() : m));
+        const nt = $('#rv-mnote'); if (nt) nt.textContent = 'Nome fantasia do CNPJ: ' + inp.value + '. Ajuste se usa outro nome (ex.: SMC).';
+      }).catch(() => {});
+    }
+    if (draft.photoFile) { try { RV.photoUrl = URL.createObjectURL(draft.photoFile); const im = $('#rv-photo'); if (im) im.src = RV.photoUrl; } catch (e) { /* sem prévia */ } }
   }
   const $$all = (q) => Array.from(document.querySelectorAll(q));
   const itemTotal = (i) => { const q = C.num(i.qty), p = C.num(i.unitPrice); return isFinite(q * p) ? q * p : 0; };
@@ -771,7 +820,13 @@
       else if (base === 'l') line = `${fq(nz.qty)} L a ${brl(nz.unitPrice)} por L`;
       else { const pu = Std.perUnit(i.std || info.name, nz.unitPrice); line = `${brl(nz.unitPrice)} por embalagem` + (pu ? ` · ${brl(pu.value)} por ${pu.unit}` : ''); }
     }
-    return chip + (line ? ` <span>Padrão: ${line}</span>` : '') + (info.assumed && base === 'dz' ? '<div class="note warn">Não achei a quantidade de ovos no nome. Considerei 1 dúzia por unidade.</div>' : '');
+    if (String(i.ean || '').trim() && !C.validEAN(i.ean)) chip += ' <span class="badge warn">Código de barras inválido</span>';
+    return chip + (line ? ` <span>Padrão: ${line}</span>` : '') + (info.assumed && base === 'dz' ? `<div class="note warn">Não achei a quantidade de ovos no nome (considerei 1 dúzia por unidade). Quantos ovos vêm em cada um?<div class="chips">${[6, 10, 12, 15, 18, 20, 24, 30].map((n) => `<button class="chip" data-act="egg-n" data-i="${RV ? RV.items.indexOf(i) : -1}" data-n="${n}">${n}</button>`).join('')}</div></div>` : '');
+  }
+  function promoHintHTML(i) {
+    if (i.promo) return '';
+    const h = C.promoHint(S, i); if (!h) return '';
+    return h.kind === 'hist' ? `<span class="badge warn">Preço ${h.pct}% abaixo do que você costuma pagar (média ${brl(h.avg)}). É super promoção? Marque acima.</span>` : '<span class="badge warn">Preço muito baixo. É super promoção? Marque acima.</span>';
   }
   function drawItems() {
     $('#rv-items').innerHTML = RV.items.map((i, n) => `
@@ -782,6 +837,9 @@
         <div class="note" data-discnote ${i.disc > 0 ? '' : 'hidden'}>Desconto no item: −${brl(i.disc || 0)}</div>
         <div class="stdrow"><label for="std-${n}">Nome comum</label><input id="std-${n}" class="in" data-f="std" list="dl-p" value="${esc(i.std || '')}" placeholder="Nome padrão do produto" autocomplete="off"></div>
         <div class="stdrow"><label for="br-${n}">Marca</label><input id="br-${n}" class="in" data-f="brand" list="dl-b" value="${esc(i.brand || '')}" placeholder="Sem marca / genérico" autocomplete="off"></div>
+        <div class="stdrow"><label for="ean-${n}">Cód. barras</label><div class="eanrow"><input id="ean-${n}" class="in" data-f="ean" inputmode="numeric" value="${esc(i.ean || '')}" placeholder="EAN (opcional)" autocomplete="off">${Native.canScan ? `<button class="btn sm" data-act="rv-ean-scan" data-i="${n}" aria-label="Escanear código de barras">${svg('qr', 'icon')}</button>` : ''}</div></div>
+        <label class="promo"><input type="checkbox" data-f="promo" ${i.promo ? 'checked' : ''}> <span>Super promoção <span class="note">(preço fora do normal: não entra na comparação)</span></span></label>
+        <div class="note" data-promohint>${promoHintHTML(i)}</div>
         <div class="note stdnote" data-stdnote>${stdNote(i)}</div>
       </div>`).join('');
     fillDsel();
@@ -836,6 +894,12 @@
     const t = $('#rv-tot'); if (!t) return;
     const tot = RV.items.reduce((a, i) => a + itemTotal(i), 0) - discRest();
     t.textContent = brl(tot);
+    const sm = $('#rv-sum');
+    if (sm) {
+      const nItems = RV.items.filter((i) => String(i.name).trim()).length, pt0 = RV.draft.printedTotal, dd = pt0 ? C.round(tot - pt0, 2) : 0;
+      sm.className = 'rvsum' + (pt0 && Math.abs(dd) >= 0.005 ? ' warn' : '');
+      sm.innerHTML = `<span><b>${nItems}</b> ${nItems === 1 ? 'item' : 'itens'}</span><span>Total lido <b>${brl(tot)}</b></span>` + (pt0 ? (Math.abs(dd) < 0.005 ? '<span>✓ confere com a nota</span>' : `<span>${dd < 0 ? 'faltam ' + brl(-dd) : 'sobram ' + brl(dd)} para fechar ${brl(pt0)}</span>`) : '');
+    }
     const ck = $('#rv-chk'), pt = RV.draft.printedTotal;
     if (ck && pt) {
       const diff = C.round(tot - pt, 2);
@@ -853,11 +917,17 @@
     const d = RV.draft, replaceId = RV.opts.replaceId;
     const draft = {
       id: replaceId || d.id, date, marketName: mName, marketCnpj: d.marketCnpj, city: d.city, source: d.source || 'manual',
-      items: valid.map((i) => ({ name: String(i.name).trim(), std: String(i.std || '').trim(), brand: String(i.brand || '').trim(), ean: i.ean, qty: C.num(i.qty), unit: String(i.unit || 'UN').trim(), unitPrice: C.num(i.unitPrice), total: C.num((C.num(i.qty) * C.num(i.unitPrice)).toFixed(2)), disc: i.disc || 0 })),
+      items: valid.map((i) => ({ name: String(i.name).trim(), std: String(i.std || '').trim(), brand: String(i.brand || '').trim(), ean: String(i.ean || '').replace(/\D/g, ''), scode: i.scode || i.code || '', promo: !!i.promo, qty: C.num(i.qty), unit: String(i.unit || 'UN').trim(), unitPrice: C.num(i.unitPrice), total: C.num((C.num(i.qty) * C.num(i.unitPrice)).toFixed(2)), disc: i.disc || 0 })),
     };
     const disc = discRest();
     draft.discount = disc; draft.total = C.round(draft.items.reduce((a, i) => a + i.total, 0) - disc, 2);
+    let merged = false;
+    if (!replaceId && d.danfe && d.id) { // outra folha de uma DANFE já salva: soma os itens à mesma compra
+      const old = S.purchases.find((x) => x.id === d.id);
+      if (old) { draft.items = itemsOfPurchase(old).concat(draft.items); draft.discount = C.round((old.discount || 0) + disc, 2); draft.total = C.round(draft.items.reduce((a, i) => a + C.num(i.total), 0) - draft.discount, 2); draft.marketName = old.marketName; draft.date = old.date; C.removePurchase(S, d.id, true); merged = true; }
+    }
     if (replaceId) C.removePurchase(S, replaceId, true);
+    if (String(d.marketCnpj || '').replace(/\D/g, '').length === 14) C.setMarketName(S, d.marketCnpj, mName);
     const res = C.addPurchase(S, draft);
     if (res.duplicate) return toast('Essa nota já foi importada');
     C.pruneProducts(S);
@@ -865,7 +935,7 @@
     const done = RV.opts.onDone, wasShop = RV.opts.fromShop;
     if (wasShop) { S.shop.checked = {}; await persistMeta(); }
     closeSheet(); render(true);
-    if (done) { toast('Compra salva'); done(true); } else { openPurchase(res.id); toast('Compra salva'); }
+    if (done) { toast(merged ? 'Itens somados à compra já salva' : 'Compra salva'); done(true); } else { openPurchase(res.id); toast('Compra salva'); }
   }
 
   /* ---------- lista: registrar compra e compartilhar ---------- */
@@ -908,6 +978,10 @@
     tab: (el) => { tab = el.dataset.v; closeSheet(); render(); },
     close: () => closeSheet(),
     import: () => openImport(),
+    'egg-n': (el) => { const i = RV && RV.items[+el.dataset.i]; if (!i) return; i.name = String(i.name).trim() + ' ' + el.dataset.n + 'U'; if (i.stdAuto !== false) suggestStd(i, false); drawItems(); },
+    'rv-ean-scan': async (el) => { try { const code = await Native.scanEAN(); const i = RV && RV.items[+el.dataset.i]; if (!code || !i) return; i.ean = code; if (i.stdAuto !== false) suggestStd(i, false); drawItems(); } catch (e) { toast('Não consegui ler o código de barras'); } },
+    'cam-nota': async () => { try { const f = await Native.takePhoto(); if (f) { closeSheet(); processFiles([f]); } } catch (e) { toast('Não consegui abrir a câmera: ' + ((e && e.message) || e)); } },
+    'cam-offer': async () => { try { const f = await Native.takePhoto(); if (f) processOffers([f]); } catch (e) { toast('Não consegui abrir a câmera: ' + ((e && e.message) || e)); } },
     paste: () => { qrPending = null; openPaste(); },
     scan: () => openScanner(),
     'paste-clip': () => pasteClip(),
@@ -920,7 +994,7 @@
     },
     pedit: (el) => {
       const p = S.purchases.find((x) => x.id === el.dataset.id); if (!p) return;
-      const items = S.items.filter((i) => i.purchaseId === p.id).map((i) => { const o = i.orig || i; return { name: i.name, std: prettyOf(i.productKey, i.name), brand: C.brandOf(S.products.find((x) => x.key === i.productKey)), brandAuto: false, keepStd: true, ean: i.ean, qty: o.qty, unit: o.unit, unitPrice: o.unitPrice, disc: i.disc || 0 }; });
+      const items = itemsOfPurchase(p);
       openReview({ marketName: p.marketName, marketCnpj: p.marketCnpj, city: p.city, date: p.date, items, source: p.source, discount: p.discount || 0 }, { title: 'Editar compra', replaceId: p.id });
     },
     product: (el) => openProduct(el.dataset.key),
@@ -1009,14 +1083,16 @@
     if (t.id === 'q') { ui.q = t.value; const l = $('#plist'); if (l) l.innerHTML = priceListHTML(); return; }
     if (t.dataset && t.dataset.f && RV) {
       const row = t.closest('.itm'); if (!row) return; const i = RV.items[+row.dataset.i];
+      if (t.type === 'checkbox') { i[t.dataset.f] = t.checked; const ph = $('[data-promohint]', row); if (ph) ph.innerHTML = promoHintHTML(i); return; }
       i[t.dataset.f] = t.value;
       if (t.dataset.f === 'unitPrice') { if (i._dd > 0) i.u0 = C.num(t.value) + i._dd / (C.num(i.qty) || 1); else delete i.u0; }
       if (t.dataset.f === 'qty' && i._dd > 0) { i.unitPrice = C.round(i.u0 - i._dd / (C.num(t.value) || 1), 4); const pi = $('[data-f=unitPrice]', row); if (pi) pi.value = String(i.unitPrice).replace('.', ','); }
       if (t.dataset.f === 'std') { i.stdAuto = false; delete i.via; if (i.brandAuto !== false) { i.brand = Std.brandIn(i.std) || ''; const bi = $('[data-f=brand]', row); if (bi) bi.value = i.brand; } }
       if (t.dataset.f === 'brand') { i.brandAuto = false; if (i.stdAuto && String(i.brand).trim()) { i.std = Std.withBrand(i.std, i.brand); const si = $('[data-f=std]', row); if (si) si.value = i.std; } }
-      if ((t.dataset.f === 'name' || t.dataset.f === 'unit') && i.stdAuto) { suggestStd(i, false); const si = $('[data-f=std]', row); if (si) si.value = i.std; const bi = $('[data-f=brand]', row); if (bi) bi.value = i.brand || ''; }
+      if ((t.dataset.f === 'name' || t.dataset.f === 'unit' || t.dataset.f === 'ean') && i.stdAuto) { suggestStd(i, false); const si = $('[data-f=std]', row); if (si) si.value = i.std; const bi = $('[data-f=brand]', row); if (bi) bi.value = i.brand || ''; }
       const s2 = $('[data-sub]', row); if (s2) s2.textContent = brl(itemTotal(i));
       const sn = $('[data-stdnote]', row); if (sn) sn.innerHTML = stdNote(i);
+      const ph2 = $('[data-promohint]', row); if (ph2) ph2.innerHTML = promoHintHTML(i);
       updTotal();
     }
   });
