@@ -138,3 +138,12 @@ test('Juntar fotos: uma foto sozinha continua igual; sem itens devolve null', ()
   assert.equal(P.mergeReads([d]).items.length, d.items.length);
   assert.equal(P.mergeReads([{ items: [] }]), null);
 });
+
+test('Juntar até 5 fotos (partes repetidas e fora de ordem) continua dando os 21 itens certos', () => {
+  const r = zef();
+  const m = P.mergeReads([r[0], r[2], r[1], r[0], r[2]]);
+  assert.equal(m.items.length, 21);
+  assert.equal(m.items.filter((i) => i.discount > 0).length, 4);
+  const sum = Math.round(m.items.reduce((a, i) => a + i.total, 0) * 100) / 100;
+  assert.equal(sum, 244.12);
+});

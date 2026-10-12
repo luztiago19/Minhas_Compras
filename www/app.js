@@ -580,7 +580,7 @@
           <input id="f-cam" type="file" accept="image/*" capture="environment" aria-label="Tirar foto da nota"></div>`}
         <div class="pick"><div class="btn block" style="justify-content:flex-start;padding:14px">${svg('file', 'icon')}<span style="text-align:left"><b>Foto ou print da galeria</b><br><span class="note">Escolha uma ou várias imagens já salvas</span></span></div>
           <input id="f-img" type="file" accept="image/*" multiple aria-label="Escolher foto da nota na galeria"></div>
-        <div class="pick"><div class="btn block" style="justify-content:flex-start;padding:14px">${svg('camera', 'icon')}<span style="text-align:left"><b>Várias fotos da mesma nota</b><br><span class="note">Para cupom longo ou foto ruim: escolha 2 ou 3 fotos (partes diferentes ou repetidas). Eu junto e fico com o que concorda.</span></span></div>
+        <div class="pick"><div class="btn block" style="justify-content:flex-start;padding:14px">${svg('camera', 'icon')}<span style="text-align:left"><b>Várias fotos da mesma nota</b><br><span class="note">Para cupom longo ou foto ruim: escolha de 2 a 5 fotos (partes diferentes ou repetidas). Eu junto e fico com o que concorda.</span></span></div>
           <input id="f-multi" type="file" accept="image/*" multiple aria-label="Escolher várias fotos da mesma nota"></div>
         <button class="btn block" data-act="paste" style="justify-content:flex-start;padding:14px">${svg('link', 'icon')}<span style="text-align:left"><b>Link ou texto da nota (QR code)</b><br><span class="note">Abra a nota pelo QR code, copie o texto e cole aqui</span></span></button>
         <button class="btn block" data-act="offer" style="justify-content:flex-start;padding:14px">${svg('camera', 'icon')}<span style="text-align:left"><b>Folheto, banner ou etiqueta</b><br><span class="note">Lê os preços e compara com o seu histórico</span></span></button>
@@ -1283,7 +1283,7 @@
       return;
     }
     if (t.id === 'f-doc' || t.id === 'f-img' || t.id === 'f-cam') { const files = t.files; closeSheet(); processFiles(files); }
-    if (t.id === 'f-multi') { const files = t.files; closeSheet(); processFiles(files, { sameNote: true }); }
+    if (t.id === 'f-multi') { let files = Array.from(t.files || []); if (files.length > 5) { files = files.slice(0, 5); toast('Usei só as 5 primeiras fotos'); } closeSheet(); processFiles(files, { sameNote: true }); }
     if (t.id === 'rv-ch') { const b = $('#rv-ordbox'); if (b) b.hidden = t.value === 'loja'; const dv = $('#rv-dlv'); if (dv) dv.hidden = t.value === 'loja'; return; }
     if (t.dataset && t.dataset.d === 'sel' && RV) { const r = RV.drows[+t.closest('.drow').dataset.n]; if (r) { r.item = RV.items[+t.value] || null; recalcDisc(); } }
     if (t.id === 'bk' && t.files[0]) restore(t.files[0]);
