@@ -9,3 +9,24 @@ if 'com.google.mlkit.vision.DEPENDENCIES' not in s:
 open(p, 'w', encoding='utf-8').write(s)
 assert 'android.permission.CAMERA' in s and 'DEPENDENCIES' in s, 'não consegui ajustar o manifesto'
 print('manifesto ajustado')
+
+# Assinatura fixa: força o Gradle a usar signing/debug.keystore (antes ele criava uma chave nova a cada build)
+g = 'android/app/build.gradle'
+t = open(g, encoding='utf-8').read()
+if 'signing/debug.keystore' not in t:
+    t += '''
+
+android {
+    signingConfigs {
+        debug {
+            storeFile file("${rootProject.projectDir}/../signing/debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
+    }
+}
+'''
+    open(g, 'w', encoding='utf-8').write(t)
+assert 'signing/debug.keystore' in open(g, encoding='utf-8').read(), 'não consegui configurar a assinatura'
+print('assinatura fixa configurada')

@@ -40,6 +40,11 @@ jobs:
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
+      - name: Conferir que o APK usa a chave fixa
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)
+          "$APKSIGNER" verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk | tee cert.txt
+          grep -qi "7d1ecfad36b68d91a6e436c22fa267c7c95ed38d6b8c877d3a5250d7cea819a6" cert.txt || { echo "APK NAO foi assinado com a chave fixa"; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
           name: cesta-certa-apk
