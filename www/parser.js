@@ -126,6 +126,81 @@
     return { seq, name, ean, qty, unit, unitPrice, total, raw: name, check, loose: true };
   }
 
+
+  /* Cupom do Atacadão: "NN AR123456 NOME DO PRODUTO 1X170G 2UND9 4,49 8,98" (a unidade vem colada num "9" e a embalagem junto do nome) */
+  const atacRe = /^(?:(\d{1,3})\s+)?([A-Z]{0,3}\d{3,14})\s+(.+?)\s+(\d+(?:[.,]\d+)?)\s*(UND|UN|KG|CX|PCT|PC|FD|DZ|BD|LT)\s?9?\s+(?:R\$\s*)?(\d+[.,]\d{2,4})\s+(?:R\$\s*)?(\d+[.,]\d{2})$/i;
+  const packRe = /\b(\d{1,3})\s?[xX]\s?(\d+(?:[.,]\d+)?)\s?(G|KG|ML|L)\b/i;
+  function atacItem(line) {
+    const m = line.match(atacRe); if (!m) return null;
+    let name = m[3].trim(), pack = '';
+    const pm = name.match(packRe);
+    if (pm) { pack = pm[1] + 'X' + pm[2].replace(',', '.') + pm[3].toUpperCase(); name = (name.slice(0, pm.index) + ' ' + (+pm[1] === 1 ? pm[2] + pm[3].toUpperCase() : pack) + ' ' + name.slice(pm.index + pm[0].length)).replace(/\s+/g, ' ').trim(); }
+    if (!/[A-Za-zÀ-ÿ]{2}/.test(name)) return null;
+    const code = m[2].toUpperCase(), digits = code.replace(/\D/g, '');
+    const ean = /^\d{8,14}$/.test(code) && validEAN(code) ? cleanEAN(code) : '';
+    const it = { seq: m[1] ? parseInt(m[1], 10) : undefined, name, ean, scode: ean ? '' : code, qty: num(m[4]), unit: m[5].toUpperCase(), unitPrice: num(m[6]), total: num(m[7]), raw: name };
+    if (pack) it.pack = pack;
+    return it;
+  }
+  // Conferências do cupom: cada uma devolve {ok, msg}; a tela mostra só as que falharam
+  function conferir(draft) {
+    const out = [], items = draft.items || [];
+    items.forEach((it, k) => {
+      const base = round(it.total + (it.discount || 0), 2);
+      if (it.qty && it.unitPrice && Math.abs(round(it.qty * (it.unitPrice + (it.discount || 0) / it.qty), 2) - base) > 0.06 && Math.abs(it.qty * it.unitPrice - it.total) > 0.06) out.push({ ok: false, kind: 'conta', item: k, msg: `Item ${k + 1} (${it.name}): quantidade × preço não bate com o total.` });
+    });
+    const sum = round(items.reduce((a, i) => a + i.total, 0), 2);
+    if (draft.printedTotal > 0) {
+      const ok = Math.abs(sum - draft.printedTotal) < 0.06;
+      out.push({ ok, kind: 'soma', msg: ok ? 'A soma dos itens (já com os descontos) fecha com o total da nota.' : `A soma dos itens (R$ ${sum.toFixed(2).replace('.', ',')}) não fecha com o total da nota (R$ ${draft.printedTotal.toFixed(2).replace('.', ',')}).` });
+    }
+    if (draft.printedCount > 0) {
+      const q = round(items.reduce((a, i) => a + (i.unit === 'KG' ? 1 : i.qty), 0), 3);
+      const ok = Math.abs(q - draft.printedCount) < 0.001;
+      out.push({ ok, kind: 'qtd', msg: ok ? 'A quantidade de itens confere com a nota.' : `A nota diz ${draft.printedCount} itens e eu li ${q}. Pode faltar ou sobrar um item.` });
+    }
+    if (draft.chave && !/^\d{44}$/.test(draft.chave)) out.push({ ok: false, kind: 'chave', msg: 'A chave de acesso não tem 44 dígitos.' });
+    return out;
+  }
+
+
+  /* ---------- JSON "cesta-certa-v1" (resposta de outra IA): leitura tolerante, contas refeitas aqui ---------- */
+  const CESTA_PROMPT = `Leia a(s) imagem(ns) da nota fiscal / cupom / print do pedido e responda SOMENTE com um JSON (sem texto antes ou depois), neste formato:
+{"formato":"cesta-certa-v1","mercado":"Nome do mercado","cnpj":"só números ou vazio","data":"AAAA-MM-DD","canal":"loja|ifood|app|site","pedido":"número do pedido ou vazio","total_nota":0.00,"total_pago":0.00,"itens":[{"nome":"nome como na nota","ean":"código de barras ou vazio","codigo":"código do mercado ou vazio","qtd":1,"unidade":"UN|KG|L","preco_unitario":0.00,"total":0.00,"desconto":0.00}]}
+Regras: use ponto como separador decimal; "desconto" é o desconto do próprio item (positivo); não invente itens nem códigos; se não conseguir ler algo, deixe vazio ou 0. Não some nem arredonde: copie os valores impressos.`;
+  function parseCestaJSON(text) {
+    let t = String(text || '').replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+    const a = t.indexOf('{'), b = t.lastIndexOf('}'); if (a < 0 || b <= a) return null;
+    t = t.slice(a, b + 1).replace(/,\s*([}\]])/g, '$1');
+    let j; try { j = JSON.parse(t); } catch (e) { return null; }
+    const pick = (o, ...ks) => { for (const k of ks) if (o && o[k] != null && o[k] !== '') return o[k]; return ''; };
+    const arr = pick(j, 'itens', 'items', 'produtos');
+    if (!Array.isArray(arr) || !arr.length) return null;
+    const d = { source: 'ia', items: [], marketName: String(pick(j, 'mercado', 'market', 'loja')).slice(0, 60), marketCnpj: String(pick(j, 'cnpj')).replace(/\D/g, ''), date: '', channel: '', order: String(pick(j, 'pedido', 'order')) };
+    const dt = String(pick(j, 'data', 'date')); const m1 = dt.match(/(\d{4})-(\d{2})-(\d{2})/), m2 = dt.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    if (m1) d.date = m1[0]; else if (m2) d.date = `${m2[3]}-${m2[2]}-${m2[1]}`;
+    const ch = String(pick(j, 'canal', 'channel')).toLowerCase(); if (/ifood/.test(ch)) d.channel = 'ifood'; else if (/app/.test(ch)) d.channel = 'app'; else if (/site/.test(ch)) d.channel = 'site';
+    const tn = num(String(pick(j, 'total_nota', 'total')).replace(',', '.')); if (tn > 0) d.printedTotal = tn;
+    const tp = num(String(pick(j, 'total_pago')).replace(',', '.')); if (tp > 0) d.paidTotal = tp;
+    arr.forEach((r, k) => {
+      const name = String(pick(r, 'nome', 'name', 'descricao')).trim(); if (!name) return;
+      const n = (x) => { const v = num(String(x).replace(',', '.')); return isFinite(v) ? v : NaN; };
+      let qty = n(pick(r, 'qtd', 'qty', 'quantidade')); if (!(qty > 0)) qty = 1;
+      const disc = Math.abs(n(pick(r, 'desconto', 'discount')) || 0);
+      let unitPrice = n(pick(r, 'preco_unitario', 'unitPrice', 'preco')), total = n(pick(r, 'total', 'valor'));
+      if (!isFinite(total) && isFinite(unitPrice)) total = round(qty * unitPrice, 2);
+      if (!isFinite(unitPrice) && isFinite(total)) unitPrice = round(total / qty, 4);
+      if (!isFinite(total)) return;
+      const net = round(total - disc, 2); // recalcula: preço líquido = total - desconto do item
+      const eanRaw = String(pick(r, 'ean', 'codigo_barras')).replace(/\D/g, '');
+      const it = { seq: k + 1, name, ean: validEAN(eanRaw) ? cleanEAN(eanRaw) : '', scode: String(pick(r, 'codigo', 'code')).trim(), qty, unit: String(pick(r, 'unidade', 'unit') || 'UN').toUpperCase(), unitPrice: round(net / qty, 4), total: net, raw: name };
+      if (disc > 0) it.discount = disc;
+      if (!(Math.abs(qty * unitPrice - total) < 0.06)) { it.check = true; it.note = 'A conta quantidade × preço não bateu na resposta da IA. Confira.'; }
+      d.items.push(it);
+    });
+    return d.items.length ? d : null;
+  }
+
   function parseReceiptText(text) {
     const lines = String(text || '').split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
     const draft = { source: 'ocr', items: [], rawText: text, marketName: '', marketCnpj: '', date: '', city: '' };
@@ -147,6 +222,13 @@
     const tm = String(text).match(/VALOR\s*(?:TOTAL\s*(?:\(R\$\))?|PAGO|A PAGAR)?\s*(?:R\$)?\s*:?\s*(\d+[.,]\d{2})\s*$/im) || String(text).match(/VALOR:\s*(\d+[.,]\d{2})/i);
     if (tm) draft.printedTotal = num(tm[1]);
 
+    const chm = String(text).replace(/(\d)\s+(?=\d{4}\b)/g, '$1').match(/\b(\d{44})\b/) || String(text).match(/((?:\d{4}\s){10}\d{4})/);
+    if (chm) draft.chave = chm[1].replace(/\s/g, '');
+    const em = String(text).match(/Emiss[ãa]o:?\s*(\d{2})\/(\d{2})\/(20\d{2})/i);
+    if (em) draft.date = `${em[3]}-${em[2]}-${em[1]}`;
+    const qt = String(text).match(/Qtde\.?\s*total\s*de\s*itens\s*:?\s*(\d+)/i);
+    if (qt) draft.printedCount = parseInt(qt[1], 10);
+
     const st = '(?:\\s+[A-Z]{1,2}\\d{0,2})?'; // coluna ST do cupom (T06, F, I...)
     const qtyLineRe = new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*(${UNITS})\\s*[xX*]\\s*(?:R\\$\\s*)?(\\d+[.,]\\d{2,4})${st}\\s+(?:R\\$\\s*)?(\\d+[.,]\\d{2})$`, 'i');
     const fullRe = new RegExp(`^(?:(\\d{1,3})\\s+)?(?:(\\d{8,14})\\s+)?(.+?)\\s+(\\d+(?:[.,]\\d+)?)\\s*(${UNITS})\\s*[xX*]?\\s*(?:R\\$\\s*)?(\\d+[.,]\\d{2,4})${st}\\s+(?:R\\$\\s*)?(\\d+[.,]\\d{2})$`, 'i');
@@ -160,6 +242,9 @@
 
     let pending = null, discSeq = null, inTable = false, ended = false;
     for (const line of lines) {
+      if (/^\W{0,3}desconto\s+sobre\s+(?:o\s+)?item/i.test(line)) { // linha logo abaixo do item: vale para o item de cima
+        const am = line.match(/(\d+[.,]\d{2})\s*\S{0,2}$/); if (am) applyDisc(null, Math.abs(num(am[1]))); continue;
+      }
       if (/^\W{0,3}Desc\w*.{0,14}?(?:ite[mn]|[íiIÍ]?t?e[nm])\s*[:;]/i.test(line)) {
         const am = line.match(/(\d+[.,]\d{2})\s*\S{0,2}$/);
         if (am) { applyDisc(null, Math.abs(num(am[1]))); discSeq = null; } else discSeq = true;
@@ -173,6 +258,8 @@
         if (draft.items.length && /\b(TOTAL|CONSUMIDOR|CHAVE|PROTOCOLO|AUTORIZACAO|CARTAO|CREDITO|DEBITO|PIX|DINHEIRO|TROCO)\b/.test(nl)) ended = true;
         continue;
       }
+      const at = atacItem(line);
+      if (at) { push(at); pending = null; continue; }
       let m = line.match(fullRe);
       if (m) {
         push({ seq: m[1] ? parseInt(m[1], 10) : undefined, name: m[3].trim(), ean: validEAN(m[2]) ? m[2] : '', qty: num(m[4]), unit: m[5].toUpperCase(), unitPrice: num(m[6]), total: num(m[7]), raw: m[3].trim() });
@@ -333,11 +420,12 @@
   // Texto qualquer (OCR/PDF): reconhece o layout da página/print da Fazenda e usa o leitor certo
   const looksPage = (t) => /\(\s*C[oó]digo:?[^)]*\)/i.test(t) && /Unit/i.test(t) && /Qtde/i.test(t);
   function parseAny(text) {
+    if (/cesta-certa-v1/.test(text)) { const j = parseCestaJSON(text); if (j) return j; }
     if (looksPage(text)) { const d = parseSefazText(text); if (d.items.length) return d; }
     if (looksDanfe(text)) { const d = parseDanfeText(text); if (d.items.length) return d; }
     return parseReceiptText(text);
   }
 
-  const api = { parseNFeXML, parseReceiptText, parseSefazText, parseDanfeText, looksDanfe, parseAny, looseItem };
+  const api = { parseNFeXML, parseReceiptText, parseSefazText, parseDanfeText, looksDanfe, parseAny, looseItem, conferir, parseCestaJSON, CESTA_PROMPT };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Parser = api;
 })(typeof self !== 'undefined' ? self : this);

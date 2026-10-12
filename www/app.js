@@ -32,6 +32,7 @@
     share: '<path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 12v8h14v-8"/>',
     check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
     qr: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h3M20 17v4"/>',
+    barcode: '<path d="M4 5v14M7 5v14M11 5v14M14 5v14M17 5v14M20 5v14"/><path d="M7 5v14" stroke-width="3"/><path d="M14 5v14" stroke-width="3"/>',
     link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
   };
   const svg = (n, cls) => `<svg class="${cls || 'icon'}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n]}</svg>`;
@@ -139,7 +140,7 @@
       const list = byMonth[ym];
       h += `<div class="group-h"><span>${monthLabel(ym)}</span><span class="mono">${brl(list.reduce((a, p) => a + p.total, 0))}</span></div><div class="list">`;
       list.forEach((p) => {
-        h += `<button class="row" data-act="purchase" data-id="${esc(p.id)}"><div class="grow"><div class="t">${esc(p.marketName || 'Sem nome')}</div><div class="s">${fdate(p.date)} · ${p.n} ${p.n === 1 ? 'item' : 'itens'}${p.demo ? ' · exemplo' : ''}</div></div><div class="r price">${brl(p.total)}</div></button>`;
+        h += `<button class="row" data-act="purchase" data-id="${esc(p.id)}"><div class="grow"><div class="t">${esc(p.marketName || 'Sem nome')}</div><div class="s">${fdate(p.date)} · ${p.n} ${p.n === 1 ? 'item' : 'itens'}${p.channel && p.channel !== 'loja' ? ' · ' + esc(C.channelLabel(p.channel)) : ''}${p.demo ? ' · exemplo' : ''}</div></div><div class="r price">${brl(p.total)}</div></button>`;
       });
       h += '</div>';
     });
@@ -485,7 +486,7 @@
     const p = S.purchases.find((x) => x.id === id); if (!p) return;
     ui.curPurchase = id;
     openSheet(p.marketName || 'Compra', `
-      <div class="note">${fdate(p.date)}${p.city ? ' · ' + esc(p.city) : ''} · ${p.source === 'xml' ? 'XML da nota' : p.source === 'page' ? 'página da Fazenda' : p.source === 'pdf' ? 'PDF' : p.source === 'ocr' ? 'foto/OCR' : 'digitada'}</div>
+      <div class="note">${p.channel && p.channel !== 'loja' ? '<b>' + esc(C.channelLabel(p.channel)) + ' · ' + esc(p.marketName || '') + (p.order ? ' · pedido ' + esc(p.order) : '') + '</b><br>' : ''}${fdate(p.date)}${p.city ? ' · ' + esc(p.city) : ''} · ${p.source === 'xml' ? 'XML da nota' : p.source === 'page' ? 'página da Fazenda' : p.source === 'pdf' ? 'PDF' : p.source === 'ocr' ? 'foto/OCR' : 'digitada'}</div>
       <div id="cmp" class="stack">${cmpHTML(id)}</div>
       ${p.discount ? `<div class="leader"><span class="n">Desconto sem item</span><span class="dots"></span><span class="v">−${brl(p.discount)}</span></div>` : ''}
       <div class="leader"><span class="n"><b>Total pago</b></span><span class="dots"></span><span class="v">${brl(p.total)}</span></div>
@@ -543,7 +544,7 @@
       ${a.rate ? `<div class="note">Seu consumo: ~${fq(a.rate * 30)} ${unit} por mês · você compra a cada ~${Math.round(a.interval)} dias.</div>` : ''}
       ${brandsCard(a)}
       <div class="card stack"><div class="lbl">Nome do produto</div><div style="display:flex;gap:8px"><input id="pn" class="in" value="${esc(a.p.name)}"><button class="btn" data-act="rename" data-key="${esc(key)}">Salvar</button></div>
-        <div class="lbl" style="margin-top:6px">Marca</div><input id="pb" class="in" list="dl-b" value="${esc(C.brandOf(a.p))}" placeholder="Sem marca / genérico" autocomplete="off"><datalist id="dl-b">${allBrands().map((m) => `<option value="${esc(m)}">`).join('')}</datalist>
+        <div class="lbl" style="margin-top:6px">Marca</div><div class="sugwrap"><input id="pb" class="in" value="${esc(C.brandOf(a.p))}" placeholder="Sem marca / genérico" autocomplete="off"><div class="sug" id="pb-sug"></div></div>
         <div class="lbl" style="margin-top:6px">Unir com outro produto</div><div class="note">Use quando o mesmo item aparece com dois nomes.</div>
         <div style="display:flex;gap:8px"><select id="mg" class="in"><option value="">Escolher…</option>${others.map((p) => `<option value="${esc(p.key)}">${esc(p.name)}</option>`).join('')}</select><button class="btn" data-act="merge" data-key="${esc(key)}">Unir</button></div></div>`);
   }
@@ -590,7 +591,7 @@
       : `<div class="note">Abra a nota pelo QR code, toque e segure no texto, escolha “Selecionar tudo” e “Copiar”. Depois toque em Colar texto copiado. Se colar só o link, o app tenta abrir a página sozinho.</div>
          <button class="btn block" data-act="paste-clip">Colar texto copiado</button>`;
     openSheet(q ? 'Nota do QR code' : 'Colar nota', `<div class="stack">${top}
-      <textarea id="pt" class="in" rows="6" placeholder="Ou cole aqui o texto da nota ou o link" style="min-height:120px"></textarea><div id="pt-err" class="note warn" hidden></div></div>
+      <textarea id="pt" class="in" rows="6" placeholder="Ou cole aqui o texto da nota ou o link" style="min-height:120px"></textarea><div id="pt-err" class="note warn" hidden></div><button class="btn sm" data-act="copy-prompt" style="align-self:flex-start">Copiar instrução para outra IA</button><div class="note">Sem leitor bom no celular? Copie a instrução, mande com a foto da nota para o ChatGPT ou outra IA e cole aqui a resposta (JSON).</div></div>
       <div class="foot"><button class="btn" data-act="close">Cancelar</button><button class="btn primary" data-act="paste-go">Ler nota</button></div>`);
   }
 
@@ -658,7 +659,7 @@
       btn.textContent = 'Abrindo…'; btn.disabled = true;
       try { text = (await Importers.fetchPage(um[0])) + '\n' + um[0]; } catch (e) { return fail('O app não conseguiu abrir a página. Use o QR code do cupom, ou abra o link no navegador, copie o texto da nota e cole aqui.'); }
     }
-    let d = Parser.parseSefazText(text);
+    let d = Parser.parseCestaJSON(text) || Parser.parseSefazText(text);
     if (!d.items.length) { const g = Parser.parseReceiptText(text); if (g.items.length) d = Object.assign(g, { id: d.id, source: 'pdf' }); }
     if (!d.items.length) {
       if (um && v.replace(um[0], '').trim().length < 20) return fail('Abri o link, mas a Fazenda não mostrou os itens. Links só com a chave de acesso (chNFe=...) pedem verificação no navegador. Use o botão de QR code, que abre a nota completa, ou tire um print da nota aberta e importe como foto.');
@@ -724,6 +725,49 @@
     suggestStd0(it, ocr);
     if (it.brandAuto !== false) { const p = knownByName(it.std); it.brand = (p && C.brandOf(p)) || Std.brandIn(it.std) || Std.brandIn(it.name) || ''; }
   }
+  /* Sugestão dentro do campo (sem lista suspensa que cobre a tela): até 4 chips logo abaixo do campo */
+  const foldKey = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const startsAnyWord = (name, q) => { const n = foldKey(name), t = foldKey(q); if (!t) return true; return n.startsWith(t) || n.split(' ').some((w, k, a) => a.slice(k).join(' ').startsWith(t)); };
+  function brandSuggestions(it, q) {
+    const used = {}; S.products.forEach((p) => { const b = C.brandOf(p); if (b) used[b] = (used[b] || 0) + 1; });
+    const top = Object.keys(used).sort((a, b) => used[b] - used[a] || a.localeCompare(b, 'pt-BR'));
+    const det = Std.brandIn(it.name) || Std.brandIn(it.std) || '';
+    const pool = [det].concat(top, Std.brandNames()).filter(Boolean);
+    const seen = new Set(), out = [];
+    const t = foldKey(q);
+    pool.forEach((b) => { const k = foldKey(b); if (seen.has(k)) return; seen.add(k); if (!t ? true : startsAnyWord(b, q)) out.push(b); });
+    return { list: out.slice(0, t ? 4 : 3), exact: out.some((b) => foldKey(b) === t), q: String(q || '').trim() };
+  }
+  function nameSuggestions(it, q) {
+    const t = foldKey(q), info = Std.standardize(it.name, it.unit);
+    const own = S.products.map((p) => p.name);
+    const scored = own.map((n) => ({ n, sc: Std.similarity(info.name, n) })).sort((a, b) => b.sc - a.sc || a.n.localeCompare(b.n, 'pt-BR'));
+    const pool = [info.name].concat(scored.map((x) => x.n)).filter(Boolean);
+    const seen = new Set(), out = [];
+    pool.forEach((n) => { const k = foldKey(n); if (seen.has(k)) return; seen.add(k); if (!t || startsAnyWord(n, q)) out.push(n); });
+    return { list: out.slice(0, t ? 4 : 3), exact: out.some((n) => foldKey(n) === t), q: String(q || '').trim() };
+  }
+  function sugHTML(row, f, inputEl) {
+    const n = row && +row.dataset.i, it = RV && RV.items[n]; if (!it) return '';
+    const q = inputEl ? inputEl.value : '';
+    const r = f === 'brand' ? brandSuggestions(it, q) : nameSuggestions(it, q);
+    let h = r.list.map((v) => `<button type="button" class="chip sg" data-act="sug-pick" data-f="${f}" data-v="${esc(v)}">${esc(v)}</button>`).join('');
+    if (r.q && !r.exact) h += `<button type="button" class="chip sg new" data-act="sug-pick" data-f="${f}" data-v="${esc(r.q)}">Usar “${esc(r.q)}” como ${f === 'brand' ? 'nova marca' : 'novo nome'}</button>`;
+    return h;
+  }
+  function showSug(inputEl) {
+    const row = inputEl.closest('.itm'), f = inputEl.dataset.f; if (!row || !(f === 'brand' || f === 'std')) return;
+    const box = row.querySelector('[data-sug="' + f + '"]'); if (box) box.innerHTML = sugHTML(row, f, inputEl);
+  }
+  function pbSug() {
+    const inp = $('#pb'), box = $('#pb-sug'); if (!inp || !box) return;
+    const r = brandSuggestions({ name: ($('#pn') || {}).value || '', std: '' }, inp.value);
+    let h = r.list.map((v) => `<button type="button" class="chip sg" data-act="pb-pick" data-v="${esc(v)}">${esc(v)}</button>`).join('');
+    if (r.q && !r.exact) h += `<button type="button" class="chip sg new" data-act="pb-pick" data-v="${esc(r.q)}">Usar “${esc(r.q)}” como nova marca</button>`;
+    box.innerHTML = h;
+  }
+  function hideSug(row) { if (!row) return; row.querySelectorAll('[data-sug]').forEach((b) => { b.innerHTML = ''; }); }
+
   const allBrands = () => Array.from(new Set(Std.brandNames().concat(S.products.map((p) => C.brandOf(p)).filter(Boolean)))).sort((a, b) => a.localeCompare(b, 'pt-BR'));
   let _voc = null;
   const ocrVocab = () => _voc || (_voc = Std.vocabOf(S.products.map((p) => p.name)));
@@ -731,7 +775,7 @@
     const info = Std.standardize(ocr ? Std.ocrFix(it.name, null, ocrVocab()) : it.name, it.unit);
     delete it.via; delete it.sim; it.stdAuto = true;
     const k = C.findKnown(S, it);
-    if (k) { it.std = k.product.name; it.via = k.via; return; }
+    if (k) { it.std = k.product.name; it.via = k.via; if (k.ean && !it.ean && !it.eanTouched) { it.ean = k.ean; it.eanFrom = 'produto'; } return; }
     const ex = knownByName(info.name); if (ex) { it.std = ex.name; return; }
     const m = Std.bestMatch(info.name, S.products.map((p) => p.name));
     if (m) { it.std = m.name; it.sim = m.name; return; }
@@ -782,15 +826,18 @@
       <div id="rv-sum" class="rvsum"></div>
       <div class="field"><label for="rv-m">Mercado</label><input id="rv-m" class="in" list="dl-m" value="${esc(mk.name || draft.marketName || '')}" placeholder="Nome do mercado" autocomplete="off">${cnpjOk && !mk.known ? `<div class="note" id="rv-mnote">${mk.fromRede ? 'Parece outra loja da rede ' + esc(mk.fromRede) + '. Confirme ou ajuste o nome.' : 'Nome vindo da razão social. Digite o nome que você usa (ex.: SMC): vou lembrar para este CNPJ.'}</div>` : ''}</div>
       <div class="field"><label for="rv-d">Data</label><input id="rv-d" class="in" type="date" value="${esc(draft.date || today())}">${draft.dateGuess ? `<div class="note warn">${esc(draft.dateMsg || 'Não consegui ler a data da nota. Coloquei a de hoje, confira.')}</div>` : ''}</div>
-      <datalist id="dl-m">${markets.map((m) => `<option value="${esc(m)}">`).join('')}</datalist><datalist id="dl-p">${names.map((m) => `<option value="${esc(m)}">`).join('')}</datalist><datalist id="dl-b">${allBrands().map((m) => `<option value="${esc(m)}">`).join('')}</datalist>
+      <datalist id="dl-m">${markets.map((m) => `<option value="${esc(m)}">`).join('')}</datalist>
+      <div class="field"><label for="rv-ch">Canal da compra</label><select id="rv-ch" class="in">${Object.keys(C.CHANNELS).map((k) => `<option value="${k}" ${(draft.channel || 'loja') === k ? 'selected' : ''}>${C.CHANNELS[k]}</option>`).join('')}</select></div>
+      <div class="field" id="rv-ordbox" ${(draft.channel || 'loja') === 'loja' ? 'hidden' : ''}><label for="rv-ord">Nº do pedido (opcional)</label><input id="rv-ord" class="in" value="${esc(draft.order || '')}" inputmode="numeric" autocomplete="off"></div>
+      <div id="rv-queue"></div>
       <div id="rv-items"></div>
       <button class="btn sm" data-act="rv-add" style="align-self:flex-start">${svg('plus', 'icon')} Adicionar item</button>
       <div id="rv-discbox"></div>
       <div class="leader"><span class="n"><b>Total a pagar</b></span><span class="dots"></span><span class="v" id="rv-tot"></span></div>
-      ${draft.printedTotal ? '<div id="rv-chk" class="note"></div>' : ''}
+      ${draft.printedTotal ? '<div id="rv-chk" class="note"></div>' : ''}<div id="rv-conf" class="stack"></div>
       ${draft.rawText ? `<details><summary class="note">Texto lido da nota</summary><pre class="note" style="white-space:pre-wrap">${esc(draft.rawText)}</pre></details>` : ''}
       <div class="foot end">${opts.skip ? '<button class="btn" data-act="rv-skip">Pular</button>' : '<button class="btn" data-act="close">Cancelar</button>'}<button class="btn primary" data-act="rv-save">Salvar compra</button></div>`, { lock: !!opts.skip });
-    drawItems(); drawDisc();
+    drawItems(); drawDisc(); drawQueue();
     if (cnpjOk && !mk.known && !mk.fromRede && typeof fetch === 'function') {
       const rvRef = RV, cn = String(draft.marketCnpj).replace(/\D/g, '');
       Promise.race([fetch('https://brasilapi.com.br/api/cnpj/v1/' + cn).then((r) => (r.ok ? r.json() : null)), new Promise((r) => setTimeout(() => r(null), 5000))]).then((j) => {
@@ -802,13 +849,26 @@
     }
     if (draft.photoFile) { try { RV.photoUrl = URL.createObjectURL(draft.photoFile); const im = $('#rv-photo'); if (im) im.src = RV.photoUrl; } catch (e) { /* sem prévia */ } }
   }
+  /* Escanear códigos em fila: percorre os itens sem código de barras, um por vez */
+  const needsEan = (i) => String(i.name || '').trim() && !C.validEAN(i.ean);
+  function drawQueue() {
+    const box = $('#rv-queue'); if (!box || !RV) return;
+    if (!Native.canScan) { box.innerHTML = ''; return; }
+    const q = RV.q, pend = RV.items.filter(needsEan);
+    if (!q) { box.innerHTML = pend.length ? `<button class="btn sm" data-act="scanq-start" style="align-self:flex-start">${svg('barcode', 'icon')} Escanear códigos (${pend.length})</button>` : ''; return; }
+    if (q.pos >= q.list.length) { box.innerHTML = `<div class="card stack"><div class="note ok">Leitura em fila terminada: ${q.done} de ${q.list.length} códigos lidos.</div><button class="btn sm" data-act="scanq-stop">Fechar</button></div>`; return; }
+    const it = q.list[q.pos];
+    box.innerHTML = `<div class="card stack"><div class="lbl">Aponte para: ${esc(String(it.std || it.name).slice(0, 48))}</div><div class="note">${q.pos + 1} de ${q.list.length}. A câmera abre em tela cheia; depois da leitura eu passo para o próximo.</div><div class="foot"><button class="btn" data-act="scanq-stop">Parar</button><button class="btn" data-act="scanq-skip">Pular</button><button class="btn primary" data-act="scanq-go">${svg('barcode', 'icon')} Escanear</button></div></div>`;
+  }
   const $$all = (q) => Array.from(document.querySelectorAll(q));
   const itemTotal = (i) => { const q = C.num(i.qty), p = C.num(i.unitPrice); return isFinite(q * p) ? q * p : 0; };
+  const viaLabel = (v) => (v === 'código de barras' || v === 'código do mercado' ? v : 'nome');
   function stdNote(i) {
     const ex = knownByName(i.std), info = Std.standardize(i.name, i.unit);
     let chip;
     if (!String(i.std || '').trim()) chip = '<span class="badge flat">Informe o nome comum</span>';
-    else if (ex) chip = `<span class="badge down">${i.via ? 'Reconhecido · ' + esc(i.via) : 'Já no seu catálogo'}</span>`;
+    else if (ex) chip = `<span class="badge down">${i.via ? 'Reconhecido por: ' + esc(viaLabel(i.via)) : 'Já no seu catálogo'}</span>`;
+    else if (i.sim && i.sim === i.std && C.validEAN(i.ean) && !i.simOk) chip = `<span class="badge warn">Código novo, nome parecido</span><div class="note warn">É o mesmo produto de <b>${esc(i.sim)}</b>? (nova embalagem)<div class="chips"><button class="chip" data-act="sim-yes" data-i="${RV ? RV.items.indexOf(i) : -1}">Sim, é o mesmo</button><button class="chip" data-act="sim-no" data-i="${RV ? RV.items.indexOf(i) : -1}">Não, é outro</button></div></div>`;
     else if (i.sim && i.sim === i.std) chip = '<span class="badge warn">Parecido com um produto seu, confirme</span>';
     else chip = '<span class="badge acc">Produto novo</span>';
     const base = ex && ex.base ? ex.base : info.base, q = C.num(i.qty), p = C.num(i.unitPrice);
@@ -820,8 +880,24 @@
       else if (base === 'l') line = `${fq(nz.qty)} L a ${brl(nz.unitPrice)} por L`;
       else { const pu = Std.perUnit(i.std || info.name, nz.unitPrice); line = `${brl(nz.unitPrice)} por embalagem` + (pu ? ` · ${brl(pu.value)} por ${pu.unit}` : ''); }
     }
-    if (String(i.ean || '').trim() && !C.validEAN(i.ean)) chip += ' <span class="badge warn">Código de barras inválido</span>';
+    if (String(i.ean || '').trim() && !C.validEAN(i.ean)) chip += ' <span class="badge warn">Código de barras inválido</span>' + (C.internalCode(i.ean) ? `<div class="note warn">Parece o código interno do mercado (${esc(C.internalCode(i.ean))}), não um código de barras.</div>` : '<div class="note warn">O último dígito não confere. Releia o código na embalagem.</div>');
+    const pk = isFinite(p) ? Std.packUnit(i.name, i.unit, p) : null;
+    if (pk) chip += `<div class="note">Pacote com ${pk.n} unidades de ${esc(pk.size)}: cada uma sai a <b>${brl(pk.each)}</b>.</div>`;
+    const cf = C.sizeConflict(C.findKnown(S, i), i.name);
+    if (cf) chip += `<div class="note warn">O código de barras diz ${esc(cf.code)} e a nota diz ${esc(cf.note)}. A marca pode ter trocado a embalagem sem trocar o código, ou a leitura errou. Confira.</div>`;
     return chip + (line ? ` <span>Padrão: ${line}</span>` : '') + (info.assumed && base === 'dz' ? `<div class="note warn">Não achei a quantidade de ovos no nome (considerei 1 dúzia por unidade). Quantos ovos vêm em cada um?<div class="chips">${[6, 10, 12, 15, 18, 20, 24, 30].map((n) => `<button class="chip" data-act="egg-n" data-i="${RV ? RV.items.indexOf(i) : -1}" data-n="${n}">${n}</button>`).join('')}</div></div>` : '');
+  }
+  // botão "Escanear" só aparece com o campo vazio; a dica explica por que a nota pode vir sem código de barras
+  const eanBtn = (i, n) => (Native.canScan && !String(i.ean || '').trim() ? `<button class="btn sm" data-act="rv-ean-scan" data-i="${n}" aria-label="Escanear código de barras">${svg('barcode', 'icon')} Escanear</button>` : '');
+  const eanHint = (i) => (String(i.ean || '').trim() ? (i.eanFrom === 'produto' ? 'Código que já conheço deste produto.' : '') : 'Notas pelo QR não trazem o código de barras. Escaneie a embalagem para preencher.');
+  function scodeLine(i) {
+    const c = String(i.scode || i.code || '').trim(); if (!c) return '';
+    const m = RV && ($('#rv-m') ? $('#rv-m').value.trim() : (RV.mk && RV.mk.name) || RV.draft.marketName) || 'mercado';
+    return 'Cód. ' + esc(m) + ': ' + esc(c);
+  }
+  function refreshEanBox(row, i) {
+    const n = RV.items.indexOf(i), b = $('[data-eanbtn]', row), h = $('[data-eanhint]', row), sc = $('[data-scode]', row);
+    if (b) b.innerHTML = eanBtn(i, n); if (h) h.innerHTML = eanHint(i); if (sc) sc.innerHTML = scodeLine(i);
   }
   function promoHintHTML(i) {
     if (i.promo) return '';
@@ -835,15 +911,17 @@
         ${i.note ? `<div class="note warn">${esc(i.note)}</div>` : ''}
         <div class="l2"><input class="in num" data-f="qty" inputmode="decimal" value="${esc(i.qty)}" aria-label="Quantidade" placeholder="Qtd"><input class="in" data-f="unit" value="${esc(i.unit || 'UN')}" aria-label="Unidade" placeholder="Un"><input class="in num" data-f="unitPrice" inputmode="decimal" value="${esc(i.unitPrice === '' ? '' : String(i.unitPrice).replace('.', ','))}" aria-label="Preço unitário" placeholder="Preço un."><span class="sub" data-sub>${brl(itemTotal(i))}</span></div>
         <div class="note" data-discnote ${i.disc > 0 ? '' : 'hidden'}>Desconto no item: −${brl(i.disc || 0)}</div>
-        <div class="stdrow"><label for="std-${n}">Nome comum</label><input id="std-${n}" class="in" data-f="std" list="dl-p" value="${esc(i.std || '')}" placeholder="Nome padrão do produto" autocomplete="off"></div>
-        <div class="stdrow"><label for="br-${n}">Marca</label><input id="br-${n}" class="in" data-f="brand" list="dl-b" value="${esc(i.brand || '')}" placeholder="Sem marca / genérico" autocomplete="off"></div>
-        <div class="stdrow"><label for="ean-${n}">Cód. barras</label><div class="eanrow"><input id="ean-${n}" class="in" data-f="ean" inputmode="numeric" value="${esc(i.ean || '')}" placeholder="EAN (opcional)" autocomplete="off">${Native.canScan ? `<button class="btn sm" data-act="rv-ean-scan" data-i="${n}" aria-label="Escanear código de barras">${svg('qr', 'icon')}</button>` : ''}</div></div>
+        <div class="stdrow"><label for="std-${n}">Nome comum</label><div class="sugwrap"><input id="std-${n}" class="in" data-f="std" value="${esc(i.std || '')}" placeholder="Nome padrão do produto" autocomplete="off"><div class="sug" data-sug="std"></div></div></div>
+        <div class="stdrow"><label for="br-${n}">Marca</label><div class="sugwrap"><input id="br-${n}" class="in" data-f="brand" value="${esc(i.brand || '')}" placeholder="Sem marca / genérico" autocomplete="off"><div class="sug" data-sug="brand"></div></div></div>
+        <div class="stdrow stack"><label for="ean-${n}">Código de barras (EAN)</label><div class="eanrow"><input id="ean-${n}" class="in" data-f="ean" inputmode="numeric" value="${esc(i.ean || '')}" placeholder="EAN (opcional)" autocomplete="off"><span data-eanbtn>${eanBtn(i, n)}</span></div><div class="note" data-eanhint>${eanHint(i)}</div></div>
+        <div class="note scode" data-scode>${scodeLine(i)}</div>
         <label class="promo"><input type="checkbox" data-f="promo" ${i.promo ? 'checked' : ''}> <span>Super promoção <span class="note">(preço fora do normal: não entra na comparação)</span></span></label>
         <div class="note" data-promohint>${promoHintHTML(i)}</div>
         <div class="note stdnote" data-stdnote>${stdNote(i)}</div>
       </div>`).join('');
     fillDsel();
     updTotal();
+    drawQueue();
   }
 
   /* descontos por item: uma linha por item (item + valor); o "+" cria a próxima linha até fechar o desconto total da nota */
@@ -900,6 +978,8 @@
       sm.className = 'rvsum' + (pt0 && Math.abs(dd) >= 0.005 ? ' warn' : '');
       sm.innerHTML = `<span><b>${nItems}</b> ${nItems === 1 ? 'item' : 'itens'}</span><span>Total lido <b>${brl(tot)}</b></span>` + (pt0 ? (Math.abs(dd) < 0.005 ? '<span>✓ confere com a nota</span>' : `<span>${dd < 0 ? 'faltam ' + brl(-dd) : 'sobram ' + brl(dd)} para fechar ${brl(pt0)}</span>`) : '');
     }
+    const cf = $('#rv-conf');
+    if (cf && Parser.conferir) { const rs = Parser.conferir(Object.assign({}, RV.draft, { items: RV.items.filter((i) => String(i.name).trim()).map((i) => ({ name: i.name, unit: String(i.unit || 'UN').toUpperCase(), qty: C.num(i.qty), unitPrice: C.num(i.unitPrice), total: C.round(C.num(i.qty) * C.num(i.unitPrice), 2), discount: i.discount || 0 })) })); const bad = rs.filter((r) => !r.ok); cf.innerHTML = bad.map((r) => `<div class="note warn">${esc(r.msg)}</div>`).join(''); }
     const ck = $('#rv-chk'), pt = RV.draft.printedTotal;
     if (ck && pt) {
       const diff = C.round(tot - pt, 2);
@@ -917,10 +997,19 @@
     const d = RV.draft, replaceId = RV.opts.replaceId;
     const draft = {
       id: replaceId || d.id, date, marketName: mName, marketCnpj: d.marketCnpj, city: d.city, source: d.source || 'manual',
+      channel: ($('#rv-ch') || {}).value || d.channel || 'loja', order: (($('#rv-ord') || {}).value || d.order || '').trim(),
       items: valid.map((i) => ({ name: String(i.name).trim(), std: String(i.std || '').trim(), brand: String(i.brand || '').trim(), ean: String(i.ean || '').replace(/\D/g, ''), scode: i.scode || i.code || '', promo: !!i.promo, qty: C.num(i.qty), unit: String(i.unit || 'UN').trim(), unitPrice: C.num(i.unitPrice), total: C.num((C.num(i.qty) * C.num(i.unitPrice)).toFixed(2)), disc: i.disc || 0 })),
     };
     const disc = discRest();
     draft.discount = disc; draft.total = C.round(draft.items.reduce((a, i) => a + i.total, 0) - disc, 2);
+    if (!replaceId && !RV.dupOk) { // nota repetida (mesma compra vinda por outro caminho)
+      const sim = C.findSimilarPurchase(S, draft);
+      if (sim) {
+        let box = $('#rv-dup'); if (!box) { box = document.createElement('div'); box.id = 'rv-dup'; const sv = $('[data-act=rv-save]'); sv.parentElement.parentElement.insertBefore(box, sv.parentElement); }
+        box.innerHTML = `<div class="card stack"><div class="note warn">Parece que você já salvou esta compra: ${esc(sim.marketName)}, ${fdate(sim.date)}, ${brl(sim.total)}.</div><div class="foot"><button class="btn" data-act="dup-view" data-id="${esc(sim.id)}">Ver a compra salva</button><button class="btn primary" data-act="dup-force">Salvar mesmo assim</button></div></div>`;
+        box.scrollIntoView({ block: 'center' }); return;
+      }
+    }
     let merged = false;
     if (!replaceId && d.danfe && d.id) { // outra folha de uma DANFE já salva: soma os itens à mesma compra
       const old = S.purchases.find((x) => x.id === d.id);
@@ -979,7 +1068,7 @@
     close: () => closeSheet(),
     import: () => openImport(),
     'egg-n': (el) => { const i = RV && RV.items[+el.dataset.i]; if (!i) return; i.name = String(i.name).trim() + ' ' + el.dataset.n + 'U'; if (i.stdAuto !== false) suggestStd(i, false); drawItems(); },
-    'rv-ean-scan': async (el) => { try { const code = await Native.scanEAN(); const i = RV && RV.items[+el.dataset.i]; if (!code || !i) return; i.ean = code; if (i.stdAuto !== false) suggestStd(i, false); drawItems(); } catch (e) { toast('Não consegui ler o código de barras'); } },
+    'rv-ean-scan': async (el) => { try { const code = await Native.scanEAN(); const i = RV && RV.items[+el.dataset.i]; if (!code || !i) return; i.ean = code; i.eanTouched = true; delete i.eanFrom; if (i.stdAuto !== false) suggestStd(i, false); drawItems(); } catch (e) { toast('Não consegui ler o código de barras'); } },
     'cam-nota': async () => { try { const f = await Native.takePhoto(); if (f) { closeSheet(); processFiles([f]); } } catch (e) { toast('Não consegui abrir a câmera: ' + ((e && e.message) || e)); } },
     'cam-offer': async () => { try { const f = await Native.takePhoto(); if (f) processOffers([f]); } catch (e) { toast('Não consegui abrir a câmera: ' + ((e && e.message) || e)); } },
     paste: () => { qrPending = null; openPaste(); },
@@ -995,7 +1084,7 @@
     pedit: (el) => {
       const p = S.purchases.find((x) => x.id === el.dataset.id); if (!p) return;
       const items = itemsOfPurchase(p);
-      openReview({ marketName: p.marketName, marketCnpj: p.marketCnpj, city: p.city, date: p.date, items, source: p.source, discount: p.discount || 0 }, { title: 'Editar compra', replaceId: p.id });
+      openReview({ marketName: p.marketName, marketCnpj: p.marketCnpj, city: p.city, date: p.date, items, source: p.source, discount: p.discount || 0, channel: p.channel || 'loja', order: p.order || '' }, { title: 'Editar compra', replaceId: p.id });
     },
     product: (el) => openProduct(el.dataset.key),
     hist: (el) => { ui.hist = el.dataset.v; const h = $('#hist'); if (h) h.innerHTML = histHTML(ui.curKey); },
@@ -1059,8 +1148,38 @@
     },
     'drow-del': (el) => { RV.drows.splice(+el.dataset.n, 1); recalcDisc(); drawDisc(); },
     cmpwin: async (el) => { S.settings.window = +el.dataset.v; await persistMeta(); const c = $('#cmp'); if (c) c.innerHTML = cmpHTML(ui.curPurchase); },
-    'rv-add': () => { RV.items.push({ name: '', std: '', stdAuto: true, qty: 1, unit: 'UN', unitPrice: '' }); drawItems(); fillDsel(); const last = document.querySelectorAll('.itm .nm'); if (last.length) last[last.length - 1].focus(); },
+    'rv-add': () => { RV.q = null; RV.items.push({ name: '', std: '', stdAuto: true, qty: 1, unit: 'UN', unitPrice: '' }); drawItems(); fillDsel(); const last = document.querySelectorAll('.itm .nm'); if (last.length) last[last.length - 1].focus(); },
     'rv-del': (el) => { const it = RV.items[+el.dataset.i]; RV.drows.forEach((r) => { if (r.item === it) r.item = null; }); RV.items.splice(+el.dataset.i, 1); drawItems(); recalcDisc(true); drawDisc(); },
+    'scanq-start': () => { const list = RV.items.filter(needsEan); if (!list.length) return; RV.q = { list, pos: 0, done: 0 }; drawQueue(); },
+    'scanq-skip': () => { if (RV.q) { RV.q.pos++; drawQueue(); } },
+    'scanq-stop': () => { RV.q = null; drawQueue(); },
+    'scanq-go': async () => {
+      const q = RV.q; if (!q) return; const it = q.list[q.pos]; if (!it) return;
+      try {
+        const code = await Native.scanEAN();
+        if (!RV || RV.q !== q) return;
+        if (code) {
+          if (!C.validEAN(code)) { toast('Esse código não confere. Tente de novo ou pule.'); return; }
+          it.ean = code; it.eanTouched = true; delete it.eanFrom; if (it.stdAuto !== false) suggestStd(it, false);
+          q.done++; q.pos++; drawItems(); drawQueue();
+        }
+      } catch (e) { toast('Não consegui ler o código de barras'); }
+    },
+    'copy-prompt': () => copyText(Parser.CESTA_PROMPT).then(() => toast('Instrução copiada'), () => toast('Não consegui copiar')),
+    'dup-force': () => { if (RV) { RV.dupOk = true; saveReview(); } },
+    'dup-view': (el) => { closeSheet(); openPurchase(el.dataset.id); },
+    'pb-pick': (el) => { const inp = $('#pb'); if (inp) inp.value = el.dataset.v; const b = $('#pb-sug'); if (b) b.innerHTML = ''; },
+    'sug-pick': (el) => {
+      const row = el.closest('.itm'), inp = row && $('[data-f=' + el.dataset.f + ']', row); if (!inp) return;
+      inp.value = el.dataset.v; inp.dispatchEvent(new Event('input', { bubbles: true }));
+      const box = row.querySelector('[data-sug="' + el.dataset.f + '"]'); if (box) box.innerHTML = '';
+    },
+    'sim-yes': (el) => { const i = RV.items[+el.dataset.i]; if (!i) return; i.simOk = true; const row = el.closest('.itm'); const sn = $('[data-stdnote]', row); if (sn) sn.innerHTML = stdNote(i); },
+    'sim-no': (el) => {
+      const i = RV.items[+el.dataset.i]; if (!i) return; const row = el.closest('.itm');
+      i.stdAuto = false; delete i.sim; i.std = Std.standardize(i.name, i.unit).name;
+      const si = $('[data-f=std]', row); if (si) si.value = i.std; const sn = $('[data-stdnote]', row); if (sn) sn.innerHTML = stdNote(i);
+    },
     'rv-save': () => saveReview(),
     'rv-skip': () => { const d = RV && RV.opts.onDone; closeSheet(); if (d) d(false); },
   };
@@ -1069,8 +1188,11 @@
     const el = e.target.closest('[data-act]'); if (!el) return;
     const fn = actions[el.dataset.act]; if (fn) { e.preventDefault(); fn(el); }
   });
+  document.addEventListener('focusin', (e) => { const t = e.target; if (t && t.id === 'pb') { pbSug(); return; } if (RV && t.dataset && (t.dataset.f === 'brand' || t.dataset.f === 'std')) { hideSug(t.closest('.itm')); showSug(t); } else if (RV && t.closest && !t.closest('.sug')) { $$all('.itm [data-sug]').forEach((b) => { b.innerHTML = ''; }); } });
+  document.addEventListener('pointerdown', (e) => { if (e.target.closest && e.target.closest('.sug')) e.preventDefault(); }); // tocar numa sugestão não fecha o teclado
   document.addEventListener('input', (e) => {
     const t = e.target;
+    if (t.id === 'pb') { pbSug(); return; }
     if (t.id === 'rv-disc') { RV.discTotal = Math.max(0, C.num(t.value) || 0); updTotal(); paintDiscStatus(); return; }
     if (t.dataset && t.dataset.d === 'amt' && RV) { const r = RV.drows[+t.closest('.drow').dataset.n]; if (r) { r.amt = t.value; recalcDisc(); } return; }
     if (t.dataset && t.dataset.of && OF) {
@@ -1085,12 +1207,17 @@
       const row = t.closest('.itm'); if (!row) return; const i = RV.items[+row.dataset.i];
       if (t.type === 'checkbox') { i[t.dataset.f] = t.checked; const ph = $('[data-promohint]', row); if (ph) ph.innerHTML = promoHintHTML(i); return; }
       i[t.dataset.f] = t.value;
+      if (t.dataset.f === 'ean') { i.eanTouched = true; delete i.eanFrom; }
+      if ((t.dataset.f === 'name' || t.dataset.f === 'ean') && RV && !RV.q) drawQueue();
       if (t.dataset.f === 'unitPrice') { if (i._dd > 0) i.u0 = C.num(t.value) + i._dd / (C.num(i.qty) || 1); else delete i.u0; }
       if (t.dataset.f === 'qty' && i._dd > 0) { i.unitPrice = C.round(i.u0 - i._dd / (C.num(t.value) || 1), 4); const pi = $('[data-f=unitPrice]', row); if (pi) pi.value = String(i.unitPrice).replace('.', ','); }
       if (t.dataset.f === 'std') { i.stdAuto = false; delete i.via; if (i.brandAuto !== false) { i.brand = Std.brandIn(i.std) || ''; const bi = $('[data-f=brand]', row); if (bi) bi.value = i.brand; } }
       if (t.dataset.f === 'brand') { i.brandAuto = false; if (i.stdAuto && String(i.brand).trim()) { i.std = Std.withBrand(i.std, i.brand); const si = $('[data-f=std]', row); if (si) si.value = i.std; } }
       if ((t.dataset.f === 'name' || t.dataset.f === 'unit' || t.dataset.f === 'ean') && i.stdAuto) { suggestStd(i, false); const si = $('[data-f=std]', row); if (si) si.value = i.std; const bi = $('[data-f=brand]', row); if (bi) bi.value = i.brand || ''; }
       const s2 = $('[data-sub]', row); if (s2) s2.textContent = brl(itemTotal(i));
+      if (t.dataset.f === 'brand' || t.dataset.f === 'std') showSug(t);
+      if (t.dataset.f !== 'ean' && i.ean) { const ei = $('[data-f=ean]', row); if (ei && ei !== t && ei.value !== String(i.ean)) ei.value = i.ean; }
+      refreshEanBox(row, i);
       const sn = $('[data-stdnote]', row); if (sn) sn.innerHTML = stdNote(i);
       const ph2 = $('[data-promohint]', row); if (ph2) ph2.innerHTML = promoHintHTML(i);
       updTotal();
@@ -1102,6 +1229,7 @@
     if (t.id === 'of-ai') { ui.ofAI = t.checked; return; }
     if (t.id === 'of-v' && OF) { OF.validUntil = t.value; return; }
     if (t.id === 'f-doc' || t.id === 'f-img' || t.id === 'f-cam') { const files = t.files; closeSheet(); processFiles(files); }
+    if (t.id === 'rv-ch') { const b = $('#rv-ordbox'); if (b) b.hidden = t.value === 'loja'; return; }
     if (t.dataset && t.dataset.d === 'sel' && RV) { const r = RV.drows[+t.closest('.drow').dataset.n]; if (r) { r.item = RV.items[+t.value] || null; recalcDisc(); } }
     if (t.id === 'bk' && t.files[0]) restore(t.files[0]);
     if (t.id === 'f-qr' && t.files[0]) {

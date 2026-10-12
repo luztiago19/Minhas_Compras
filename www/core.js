@@ -36,14 +36,22 @@
 
   // GTIN-14 com zero à esquerda vira EAN-13; códigos internos com muitos zeros não contam como EAN.
   const cleanEAN = (e) => { let d = String(e || '').replace(/\D/g, ''); while (d.length > 13 && d[0] === '0') d = d.slice(1); return d; };
-  // dígito verificador GTIN (EAN-8/13/14): serve para confiar ou não num código lido por OCR
+  // dígito verificador GTIN (EAN-8, UPC-A de 12, EAN-13, GTIN-14): serve para confiar ou não num código digitado ou lido por OCR
   const gtinOK = (c) => {
-    c = cleanEAN(c); if (!/^\d{8}$|^\d{13}$/.test(c)) return false;
+    c = cleanEAN(c); if (!/^(\d{8}|\d{12}|\d{13}|\d{14})$/.test(c)) return false;
     const d = c.split('').map(Number), chk = d.pop();
     let sum = 0; for (let i = d.length - 1, w = 3; i >= 0; i--, w = 4 - w) sum += d[i] * w;
     return (10 - (sum % 10)) % 10 === chk;
   };
-  const validEAN = (e) => { const d = cleanEAN(e); return /^\d{8,13}$/.test(d) && !/^0{6}/.test(d); };
+  // zeros demais na frente: é código interno da loja preenchido com zeros, não código de barras
+  const looksInternal = (d) => d.length >= 8 && (d.length === 8 ? /^0{4}/ : /^0{6}/).test(d);
+  // código de barras válido: tamanho certo, dígito verificador certo e não parecer código interno
+  const validEAN = (e) => { const d = cleanEAN(e); return gtinOK(d) && !looksInternal(d); };
+  // código interno do mercado impresso com zeros na frente (ex.: 00000000007129 = código 7129 da loja). Devolve '' se for outra coisa.
+  const internalCode = (e) => {
+    const d = String(e || '').replace(/\D/g, '');
+    return looksInternal(d) ? d.replace(/^0+/, '') : '';
+  };
   const round = (n, d) => { const f = Math.pow(10, d); return Math.round((n + Number.EPSILON) * f) / f; };
 
   function resolveKey(aliases, ean, name) {
@@ -85,7 +93,7 @@
     if (!prod && byName) prod = byName;
     if (!prod) {
       const key = eanKey ? followAlias(S.aliases, eanKey) : followAlias(S.aliases, nameKey);
-      prod = { key, name: stdName, brand: String(raw.brand || '').trim() || info.brand || Std.brandIn(stdName), ean, unit: { kg: 'KG', l: 'L', dz: 'DZ', un: 'UN' }[info.base], base: info.base, pack: Std.sizeOf(stdName), ignore: false, count: null };
+      prod = { key, name: stdName, brand: String(raw.brand || '').trim() || info.brand || Std.brandIn(stdName), ean, eans: ean ? [ean] : [], unit: { kg: 'KG', l: 'L', dz: 'DZ', un: 'UN' }[info.base], base: info.base, pack: Std.sizeOf(stdName), ignore: false, count: null };
       S.products.push(prod);
     } else {
       if (confirmed && norm(prod.name) !== norm(stdName) && !byName) prod.name = stdName; // você renomeou o produto na conferência
@@ -93,6 +101,7 @@
       if (!prod.brand) prod.brand = String(raw.brand || '').trim() || Std.brandIn(prod.name);
       if (ean && !prod.ean) prod.ean = ean;
     }
+    if (ean) { prod.eans = Array.isArray(prod.eans) ? prod.eans : (prod.ean ? [prod.ean] : []); if (!prod.eans.includes(ean)) prod.eans.push(ean); }
     // de-para aprendido: este código de barras e este texto de nota apontam para o produto
     if (eanKey && eanKey !== prod.key) S.aliases[eanKey] = prod.key;
     if (sKey && sKey !== prod.key) S.aliases[sKey] = prod.key;
@@ -109,9 +118,39 @@
   function findKnown(S, raw) {
     const ean = validEAN(raw.ean) ? cleanEAN(raw.ean) : '', byKey = (k) => S.products.find((p) => p.key === k);
     if (ean) { const p = byKey(followAlias(S.aliases, 'e:' + ean)); if (p) return { product: p, via: 'código de barras' }; }
-    const sk = storeKey(raw); if (sk) { const sp = byKey(followAlias(S.aliases, sk)); if (sp && sp.key !== sk) return { product: sp, via: 'código do mercado' }; }
+    const sk = storeKey(raw); if (sk) { const sp = byKey(followAlias(S.aliases, sk)); if (sp && sp.key !== sk) return { product: sp, via: 'código do mercado', ean: sp.ean || '' }; }
     const tk = 'n:' + norm(raw.name), k = followAlias(S.aliases, tk), p = byKey(k !== tk ? k : tk);
     return p ? { product: p, via: k !== tk ? 'correção anterior' : 'compra anterior' } : null;
+  }
+
+  // O código de barras aponta para um produto de tamanho diferente do que a nota diz? (a marca pode ter trocado a embalagem sem trocar o código, ou a leitura errou)
+  function sizeConflict(found, rawName) {
+    if (!found || found.via !== 'código de barras') return null;
+    const a = Std.sizeOf(found.product.name), b = Std.sizeOf(rawName);
+    if (!a || !b || Std.sameSize(found.product.name, rawName)) return null;
+    return { code: Std.sizeLabel(a), note: Std.sizeLabel(b) };
+  }
+
+  const CHANNELS = { loja: 'Loja física', ifood: 'iFood', app: 'Outro app', site: 'Site do mercado' };
+  const channelLabel = (c) => CHANNELS[c] || '';
+
+
+  /* Nota repetida: além do id (chave), compara mercado + dia + total (±0,05) + 70% dos nomes iguais */
+  function findSimilarPurchase(S, draft) {
+    const cnpj = String(draft.marketCnpj || '').replace(/\D/g, '');
+    const mk = marketKey(draft.marketCnpj, draft.marketName);
+    const names = (draft.items || []).map((i) => norm(i.name)).filter(Boolean);
+    const tot = isFinite(num(draft.total)) ? num(draft.total) : round((draft.items || []).reduce((a, i) => a + (isFinite(num(i.total)) ? num(i.total) : num(i.qty) * num(i.unitPrice)), 0) - (num(draft.discount) || 0), 2);
+    for (const p of S.purchases) {
+      if (draft.id && p.id === draft.id) continue;
+      if (p.date !== draft.date) continue;
+      const sameMarket = (cnpj.length === 14 && String(p.marketCnpj || '').replace(/\D/g, '') === cnpj) || p.marketKey === mk;
+      if (!sameMarket || Math.abs(num(p.total) - tot) > 0.05) continue;
+      const pn = S.items.filter((i) => i.purchaseId === p.id).map((i) => norm(i.name));
+      const hit = names.filter((n) => pn.includes(n)).length;
+      if (!names.length || hit / names.length >= 0.7) return p;
+    }
+    return null;
   }
 
   function addPurchase(S, draft) {
@@ -138,7 +177,7 @@
       items.push({
         id: id + '-' + i, purchaseId: id, date: draft.date, marketKey: mk, marketName: draft.marketName,
         productKey: prod.key, name: raw.name, ean: validEAN(raw.ean) ? cleanEAN(raw.ean) : '', qty: nz.qty, unit: nz.unit, unitPrice: nz.unitPrice, total: round(t, 2),
-        promo: !!raw.promo, scode: String(raw.scode || raw.code || '').trim(),
+        promo: !!raw.promo, scode: String(raw.scode || raw.code || '').trim(), channel: draft.channel || 'loja',
         disc: round(num(raw.disc) || 0, 2), orig: { qty, unit, unitPrice: round(unitPrice, 4) },
       });
     });
@@ -147,6 +186,7 @@
       id, date: draft.date, marketKey: mk, marketName: draft.marketName, marketCnpj: String(draft.marketCnpj || '').replace(/\D/g, ''),
       city: draft.city || '', discount: round(num(draft.discount) || 0, 2), total: round(isFinite(num(draft.total)) && draft.total ? num(draft.total) : total, 2),
       source: draft.source || 'manual', demo: !!draft.demo, n: items.length,
+      channel: draft.channel || 'loja', order: String(draft.order || '').trim(),
     };
     S.purchases.push(purchase);
     S.items.push(...items);
@@ -305,6 +345,8 @@
     S.items.forEach((i) => { if (i.productKey === src) { i.productKey = dst; names.add(norm(i.name)); if (i.ean) S.aliases['e:' + i.ean] = dst; } });
     names.forEach((n) => { S.aliases['n:' + n] = dst; });
     S.aliases[src] = dst;
+    const sp = S.products.find((p) => p.key === src), dp = S.products.find((p) => p.key === dst);
+    if (sp && dp) { const all = new Set([].concat(dp.eans || (dp.ean ? [dp.ean] : []), sp.eans || (sp.ean ? [sp.ean] : []))); dp.eans = Array.from(all); if (!dp.ean && dp.eans.length) dp.ean = dp.eans[0]; }
     S.products = S.products.filter((p) => p.key !== src);
   }
 
@@ -524,8 +566,8 @@
   }
 
   const api = {
-    promoHint, suggestMarket, setMarketName, cleanMarketName, chaveMonth, norm, prettyName, num, cleanEAN, gtinOK, parseDate, daysBetween, toISO, todayISO, addDays, validEAN, round, resolveKey, marketKey,
-    newState, addPurchase, findKnown, brandOf, genericKey, dashboard, evalOffer, activeOffers, compare, addMonthsISO, removePurchase, pruneProducts, mergeProducts, analyze, suggest, marketIndex, demoDrafts, roundQty,
+    promoHint, suggestMarket, setMarketName, cleanMarketName, chaveMonth, norm, prettyName, num, cleanEAN, gtinOK, internalCode, parseDate, daysBetween, toISO, todayISO, addDays, validEAN, round, resolveKey, marketKey,
+    newState, addPurchase, findSimilarPurchase, findKnown, sizeConflict, channelLabel, CHANNELS, brandOf, genericKey, dashboard, evalOffer, activeOffers, compare, addMonthsISO, removePurchase, pruneProducts, mergeProducts, analyze, suggest, marketIndex, demoDrafts, roundQty,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Core = api;
 })(typeof self !== 'undefined' ? self : this);

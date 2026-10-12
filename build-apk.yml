@@ -22,12 +22,18 @@ jobs:
           java-version: 21
       - name: Instalar dependências
         run: npm install
+      - name: Escrever o número do build na tela
+        run: sed -i "s/self.APP_BUILD = ''/self.APP_BUILD = '${{ github.run_number }}'/" www/version.js
       - name: Criar projeto Android
         run: npx cap add android
       - name: Ajustar permissões
         run: python3 scripts/patch_android.py
       - name: Copiar o app para o Android
         run: npx cap sync android
+      - name: Usar a chave de assinatura fixa (para o APK novo atualizar por cima do antigo)
+        run: |
+          mkdir -p ~/.android
+          cp signing/debug.keystore ~/.android/debug.keystore
       - name: Compilar APK
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true

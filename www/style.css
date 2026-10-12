@@ -268,3 +268,15 @@ button.row:active { background: var(--surface-2); }
 .eanrow { display: flex; gap: 6px; align-items: center; } .eanrow .in { flex: 1; }
 .itm .promo { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; }
 .itm .promo input { width: 20px; height: 20px; margin-top: 1px; flex: none; }
+
+/* sugestões dentro do campo (Marca, Nome comum): chips logo abaixo, sem lista que cobre a tela */
+.itm .sugwrap { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.itm .sug { display: flex; flex-wrap: wrap; gap: 6px; }
+.itm .sug:empty { display: none; }
+.chip.sg { padding: 6px 10px; font-size: 13px; background: var(--accent-soft); color: var(--ink); border-color: transparent; white-space: normal; text-align: left; }
+.chip.sg.new { background: var(--surface); border: 1px dashed var(--line); color: var(--ink-2); }
+.itm .stdrow.stack { grid-template-columns: 1fr; gap: 4px; }
+.itm .eanrow { display: flex; gap: 8px; align-items: center; }
+.itm .eanrow .in { flex: 1; min-width: 0; }
+.itm .scode { color: var(--ink-2); font-size: 12px; }
+.itm .scode:empty { display: none; }

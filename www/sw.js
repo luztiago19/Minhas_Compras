@@ -1,5 +1,5 @@
 /* Service worker: o app abre offline depois da primeira visita. */
-const CACHE = 'cesta-certa-v11';
+const CACHE = 'cesta-certa-v12';
 const SHELL = ['./', './index.html', './style.css', './version.js', './std.js', './flyer.js', './core.js', './db.js', './parser.js', './imgproc.js', './native.js', './qr.js', './importers.js', './app.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });

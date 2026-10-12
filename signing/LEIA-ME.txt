@@ -1,0 +1,9 @@
+Chave de assinatura FIXA do APK de teste (depuração).
+
+Por que existe: o Android só instala um APK novo por cima do antigo se os dois tiverem a mesma assinatura.
+Antes, cada build do GitHub criava uma chave nova, então era preciso desinstalar o app (e perder os dados).
+Com este arquivo fixo, a partir do apk-4 toda atualização instala por cima e mantém os dados.
+
+Senha da chave: android   |   alias: androiddebugkey
+É uma chave de TESTE (qualquer pessoa com acesso ao repositório pode vê-la). Não serve para a Play Store.
+Para publicar na Play Store, crie uma chave de publicação própria e guarde-a como segredo do GitHub (Secrets).

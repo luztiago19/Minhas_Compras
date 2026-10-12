@@ -17,7 +17,7 @@
     BAT: 'BATATA', CEN: 'CENOURA', LAR: 'LARANJA', ABOB: 'ABOBORA', PEIT: 'PEITO', FIL: 'FILE', BOV: 'BOVINO', SUIN: 'SUINO',
     ORG: 'ORGANICO', SEMI: 'SEMI', ZERO: 'ZERO', LIQ: 'LIQUIDO', CONC: 'CONCENTRADO', PREM: 'PREMIUM',
     SUP: 'SUPER', EXTR: 'EXTRA', GRAN: 'GRANDE', PEQ: 'PEQUENO', MED: 'MEDIO', BCO: 'BRANCO', BRANC: 'BRANCO', VERM: 'VERMELHO', PRET: 'PRETO',
-    CAIPIR: 'CAIPIRA', CAIP: 'CAIPIRA', AMAR: 'AMARELO', ESCUR: 'ESCURO', CLAR: 'CLARO', SORT: 'SORTIDO', SORTID: 'SORTIDO', LIGHT: 'LIGHT', DIET: 'DIET', ECON: 'ECONOMICO',
+    FAT: 'FATIADO', LTA: 'LATA', VDE: 'VERDE', INF: 'INFANTIL', NEST: 'NESTLE', PASS: 'PASSATEMPO', CAIPIR: 'CAIPIRA', CAIP: 'CAIPIRA', AMAR: 'AMARELO', ESCUR: 'ESCURO', CLAR: 'CLARO', SORT: 'SORTIDO', SORTID: 'SORTIDO', LIGHT: 'LIGHT', DIET: 'DIET', ECON: 'ECONOMICO',
   };
   // palavras comuns que perdem o acento na nota
   const ACC = {
@@ -186,6 +186,7 @@
       if (n >= 4 && n <= 90) { count = n; s = s.replace(ep[0], ' '); }
     }
     s = s.replace(/\bC\s*\/\s*/g, 'COM ').replace(/\bS\s*\/\s*/g, 'SEM ').replace(/[^A-Z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+    s = s.replace(/\bGALINHA LIVRE\b/g, 'CAIPIRA').replace(/\bAZ VDE\b/g, 'AZEITONA VERDE').replace(/\bCR LEITE\b/g, 'CREME DE LEITE').replace(/\bSAB INF\b/g, 'SABONETE INFANTIL');
     let words = s.split(' ').filter((w) => w && !/^(UN|UND|UNID|UNIDADE|UNIDADES|KG|G|GR|L|LT|ML|BDJ)$/.test(w));
     words = words.map((w) => ABBR[w] || w);
     const eggs = words.some((w) => w === 'OVO' || w === 'OVOS') && !words.some((w) => /^(PASCOA|CHOCOLATE|CHOCOLATES)$/.test(w));
@@ -201,7 +202,7 @@
     if (base === 'un' && size) name += ' ' + (multi ? multi.n + ' x ' + sizeLabel(multi.each) : sizeLabel(size));
     name = name.replace(/\s+/g, ' ').trim();
     const bf = findBrand(name); if (bf) { const nw = name.split(/\s+/); if (nw.length >= bf.at + bf.len) { nw.splice(bf.at, bf.len, bf.brand); name = nw.join(' '); } }
-    return { name, base, pack, count: count || null, eggs, assumed, unit: u, brand: brandIn(name) };
+    return { name, base, pack, count: count || null, multi, eggs, assumed, unit: u, brand: brandIn(name) };
   }
 
   // Converte um item do jeito que veio na nota para a unidade padrão do produto
@@ -214,6 +215,13 @@
     else if (info.base === 'dz') f = u === 'DZ' ? 1 : info.count ? info.count / 12 : 1;
     const label = { kg: 'KG', l: 'L', dz: 'DZ', un: 'UN' }[info.base];
     return { qty: Math.round(qty * f * 1e6) / 1e6, unit: label, unitPrice: r4(unitPrice / f), f, assumed: !!info.assumed };
+  }
+
+  // Pacote com várias unidades ("8x90g"): preço de cada unidade
+  function packUnit(rawName, unit, price) {
+    const info = standardize(rawName, unit);
+    if (!info.multi || !(info.multi.n > 1) || !(price > 0)) return null;
+    return { n: info.multi.n, each: Math.round(price / info.multi.n * 100) / 100, size: sizeLabel(info.multi.each) };
   }
 
   // R$ por kg ou por L de uma embalagem (para comparar tamanhos diferentes)
@@ -240,6 +248,6 @@
     return best && bs >= min && (bs === 1 || bs - second >= 0.05) ? { name: best, score: bs } : null;
   }
 
-  const api = { standardize, normalizeItem, normUnit, sizeOf, sameSize, sizeLabel, perUnit, similarity, bestMatch, fmtNum, brandIn, findBrand, ocrFix, vocabOf, genericName, withBrand, brandNames };
+  const api = { packUnit, standardize, normalizeItem, normUnit, sizeOf, sameSize, sizeLabel, perUnit, similarity, bestMatch, fmtNum, brandIn, findBrand, ocrFix, vocabOf, genericName, withBrand, brandNames };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Std = api;
 })(typeof self !== 'undefined' ? self : this);
