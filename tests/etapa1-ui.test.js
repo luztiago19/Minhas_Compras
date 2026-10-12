@@ -133,3 +133,38 @@ test('Salvar compra repetida: avisa e só salva com "Salvar mesmo assim"', async
   H.click(w, '[data-act=dup-force]'); await H.tick(w, 80);
   assert.equal(w.document.querySelector('#rv-dup'), null);
 });
+
+test('Delivery na conferência: campos, benefício ao vivo e compra salva com total pago', async () => {
+  const w = await H.loadApp();
+  await H.openManualReview(w);
+  assert.equal(H.q(w, '#rv-dlv').hidden, true);
+  const ch = H.q(w, '#rv-ch'); ch.value = 'ifood'; ch.dispatchEvent(new w.Event('change', { bubbles: true }));
+  assert.equal(H.q(w, '#rv-dlv').hidden, false);
+  H.type(w, '#rv-m', 'Atacadão'); H.type(w, '#rv-d', '2026-10-05');
+  H.type(w, H.q(w, '[data-f=name]'), 'ARROZ TIO JOAO 5KG'); H.type(w, H.q(w, '[data-f=unitPrice]'), '172,09');
+  H.type(w, '#rv-cp', '32'); H.type(w, '#rv-fe', '3,96'); H.type(w, '#rv-pd', '131,36');
+  assert.match(H.q(w, '#rv-bn').textContent, /preço menor no app R\$\s?12,69/);
+  assert.match(H.q(w, '#rv-bn').textContent, /Benefício líquido do app: R\$\s?40,73/);
+  H.click(w, '[data-act=rv-save]'); await H.tick(w, 80);
+  const txt = H.q(w, '#sheet').textContent || w.document.body.textContent;
+  assert.match(txt, /131,36/);
+});
+
+test('QR + cupom: colar o texto completa códigos e descontos na conferência', async () => {
+  const w = await H.loadApp();
+  await H.openManualReview(w);
+  // simula nota lida do QR (sem EAN): abre a conferência com source "page"
+  const draft = { source: 'page', marketName: 'SMC', date: '2026-10-02', items: [
+    { name: 'LEITE COND MOCOCA 395G', qty: 2, unit: 'UN', unitPrice: 5.99, total: 11.98 },
+    { name: 'REQUEIJAO DANONE 200G', qty: 1, unit: 'UN', unitPrice: 8.49, total: 8.49 } ] };
+  w.CestaTest.openReview(draft, { title: 'Conferir nota' });
+  assert.ok(H.q(w, '#rv-qrc .card'), 'cartão de completar com o cupom aparece');
+  H.q(w, '#qrc-txt').value = `01 7891000100103 LEITE COND MOCOCA 395G 2 UN x 5,99 11,98
+Desconto Item:001 1,00
+02 7896034300819 REQUEIJAO DANONE 200G 1 UN x 8,49 8,49
+VALOR TOTAL R$ 19,47`;
+  H.click(w, '[data-act=qrc-paste]');
+  assert.match(H.q(w, '#rv-qrc').textContent, /Achei 2 de 2 códigos de barras e 1 desconto/);
+  assert.equal(H.qa(w, '[data-f=ean]')[0].value, '7891000100103');
+  assert.equal(H.qa(w, '[data-f=unitPrice]')[0].value.replace('.', ','), '5,49');
+});

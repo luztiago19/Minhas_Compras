@@ -166,8 +166,8 @@
 
   /* ---------- JSON "cesta-certa-v1" (resposta de outra IA): leitura tolerante, contas refeitas aqui ---------- */
   const CESTA_PROMPT = `Leia a(s) imagem(ns) da nota fiscal / cupom / print do pedido e responda SOMENTE com um JSON (sem texto antes ou depois), neste formato:
-{"formato":"cesta-certa-v1","mercado":"Nome do mercado","cnpj":"só números ou vazio","data":"AAAA-MM-DD","canal":"loja|ifood|app|site","pedido":"número do pedido ou vazio","total_nota":0.00,"total_pago":0.00,"itens":[{"nome":"nome como na nota","ean":"código de barras ou vazio","codigo":"código do mercado ou vazio","qtd":1,"unidade":"UN|KG|L","preco_unitario":0.00,"total":0.00,"desconto":0.00}]}
-Regras: use ponto como separador decimal; "desconto" é o desconto do próprio item (positivo); não invente itens nem códigos; se não conseguir ler algo, deixe vazio ou 0. Não some nem arredonde: copie os valores impressos.`;
+{"formato":"cesta-certa-v1","mercado":"Nome do mercado","cnpj":"só números ou vazio","data":"AAAA-MM-DD","canal":"loja|ifood|app|site","pedido":"número do pedido ou vazio","total_nota":0.00,"cupom_app":0.00,"taxas":0.00,"total_pago":0.00,"itens":[{"nome":"nome como na nota","ean":"código de barras ou vazio","codigo":"código do mercado ou vazio","qtd":1,"unidade":"UN|KG|L","preco_unitario":0.00,"total":0.00,"desconto":0.00}]}
+Regras: use ponto como separador decimal; "desconto" é o desconto do próprio item (positivo); não invente itens nem códigos; se não conseguir ler algo, deixe vazio ou 0. Não some nem arredonde: copie os valores impressos. "cupom_app" é o desconto do aplicativo (positivo) e "taxas" é serviço + entrega. Não inclua nome, CPF nem endereço do comprador.`;
   function parseCestaJSON(text) {
     let t = String(text || '').replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
     const a = t.indexOf('{'), b = t.lastIndexOf('}'); if (a < 0 || b <= a) return null;
@@ -182,6 +182,9 @@ Regras: use ponto como separador decimal; "desconto" é o desconto do próprio i
     const ch = String(pick(j, 'canal', 'channel')).toLowerCase(); if (/ifood/.test(ch)) d.channel = 'ifood'; else if (/app/.test(ch)) d.channel = 'app'; else if (/site/.test(ch)) d.channel = 'site';
     const tn = num(String(pick(j, 'total_nota', 'total')).replace(',', '.')); if (tn > 0) d.printedTotal = tn;
     const tp = num(String(pick(j, 'total_pago')).replace(',', '.')); if (tp > 0) d.paidTotal = tp;
+    if (tp > 0) d.paid = tp;
+    const cp = Math.abs(num(String(pick(j, 'cupom_app', 'cupom', 'descontos')).replace(',', '.'))); if (cp > 0) d.coupon = cp;
+    const fe = Math.abs(num(String(pick(j, 'taxas', 'taxa')).replace(',', '.'))); if (fe > 0) d.fees = fe;
     arr.forEach((r, k) => {
       const name = String(pick(r, 'nome', 'name', 'descricao')).trim(); if (!name) return;
       const n = (x) => { const v = num(String(x).replace(',', '.')); return isFinite(v) ? v : NaN; };
@@ -199,6 +202,61 @@ Regras: use ponto como separador decimal; "desconto" é o desconto do próprio i
       d.items.push(it);
     });
     return d.items.length ? d : null;
+  }
+
+  /* ---------- print do pedido do iFood (texto lido da imagem) ---------- */
+  const looksIfood = (t) => /ifood/i.test(t) || (/pedido/i.test(t) && /taxa\s+de\s+(?:entrega|servi[cç]o)/i.test(t) && /\bR\$\s*\d/.test(t));
+  function parseIfoodText(text) {
+    const lines = String(text || '').split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const d = { source: 'ifood', channel: 'ifood', items: [], marketName: '', marketCnpj: '', date: '', order: '' };
+    const money = (l) => { const m = l.match(/(-?)\s*R?\$?\s*(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})\s*$/); return m ? { v: num(m[2]), neg: m[1] === '-' } : null; };
+    const om = String(text).match(/pedido\s*(?:n[ºo°.]*\s*)?#?\s*(\d{3,})/i); if (om) d.order = om[1];
+    const dm = String(text).match(/(\d{2})\/(\d{2})\/(20\d{2})/); if (dm) d.date = `${dm[3]}-${dm[2]}-${dm[1]}`;
+    let pendingName = null, inItems = false, sub = 0;
+    const tail = /^(subtotal|taxa|total|descontos?|cupom|desconto|sacola|forma de pagamento|pagamento|cobran[cç]a|entrega|endere[cç]o)/i;
+    for (const line of lines) {
+      const m = money(line), label = line.replace(/-?\s*R?\$?\s*[\d.]+,\d{2}\s*$/, '').trim();
+      if (/^subtotal/i.test(label) && m) { sub = m.v; inItems = false; continue; }
+      if (/taxa\s+de\s+(entrega|servi[cç]o)|entrega|servi[cç]o/i.test(label) && m && !/^\d+\s*x/i.test(label)) { d.fees = round((d.fees || 0) + m.v, 2); inItems = false; continue; }
+      if (/^(descontos?|cupom|desconto)/i.test(label) && m) { d.coupon = round((d.coupon || 0) + m.v, 2); inItems = false; continue; }
+      if (/^total/i.test(label) && m) { d.paid = m.v; inItems = false; continue; }
+      if (/itens do pedido|seus itens|^itens/i.test(line)) { inItems = true; continue; }
+      if (!d.marketName && !inItems && /[A-Za-zÀ-ÿ]{4}/.test(line) && !/pedido|ifood|entregue|conclu[ií]do|^\d/i.test(line) && !m) { d.marketName = line.slice(0, 60); continue; }
+      if (tail.test(label) && !/^\d+\s*x/i.test(label)) continue;
+      const q = line.match(/^(\d+)\s*[xX×]\s+(.+)$/);
+      if (q && !m) { pendingName = { qty: parseInt(q[1], 10), name: q[2].trim() }; continue; }
+      if (q && m) { const nm = q[2].replace(/\s*R?\$?\s*[\d.]+,\d{2}\s*$/, '').trim(); const qty = parseInt(q[1], 10); d.items.push({ seq: d.items.length + 1, name: nm, ean: '', qty, unit: 'UN', unitPrice: round(m.v / qty, 4), total: m.v, raw: nm }); pendingName = null; continue; }
+      if (m && !label && pendingName) { const pn = pendingName; d.items.push({ seq: d.items.length + 1, name: pn.name, ean: '', qty: pn.qty, unit: 'UN', unitPrice: round(m.v / pn.qty, 4), total: m.v, raw: pn.name }); pendingName = null; continue; }
+      if (!m && inItems && /[A-Za-zÀ-ÿ]{3}/.test(line) && !/indispon[ií]vel/i.test(line)) pendingName = { qty: 1, name: line };
+    }
+    d.subtotal = sub;
+    return d.items.length ? d : null;
+  }
+  // Une o texto do cupom/foto a um rascunho já lido pelo QR: completa EAN, código do mercado e descontos
+  function mergeCupom(draft, cupom) {
+    const out = { matched: 0, eans: 0, discounts: 0, total: draft.items.length };
+    if (!cupom || !cupom.items || !cupom.items.length) return out;
+    const used = new Set(), samePos = cupom.items.length === draft.items.length;
+    draft.items.forEach((it, k) => {
+      let c = null;
+      const gross = (x) => round(x.total + (x.discount || 0), 2);
+      // 1) mesma posição e mesmo valor bruto
+      if (samePos && Math.abs(gross(cupom.items[k]) - gross(it)) < 0.011 && !used.has(k)) { c = cupom.items[k]; used.add(k); }
+      // 2) mesmo valor bruto e mesma quantidade, ainda não usado
+      if (!c) { const j = cupom.items.findIndex((x, n) => !used.has(n) && Math.abs(gross(x) - gross(it)) < 0.011 && Math.abs(x.qty - it.qty) < 0.0005); if (j >= 0) { c = cupom.items[j]; used.add(j); } }
+      if (!c) return;
+      out.matched++;
+      if (c.ean && !it.ean) { it.ean = c.ean; out.eans++; }
+      if (c.scode && !it.scode) it.scode = c.scode;
+      if (c.discount > 0 && !(it.discount > 0)) {
+        // a página da Fazenda traz o valor cheio: aplica o desconto do cupom ao item
+        it.discount = c.discount; it.qd = c.discount;
+        if (Math.abs(it.total - gross(c)) < 0.011) { it.total = round(it.total - c.discount, 2); it.unitPrice = round(it.total / it.qty, 4); }
+        out.discounts++;
+      }
+    });
+    if (cupom.date && !draft.date) draft.date = cupom.date;
+    return out;
   }
 
   function parseReceiptText(text) {
@@ -420,12 +478,13 @@ Regras: use ponto como separador decimal; "desconto" é o desconto do próprio i
   // Texto qualquer (OCR/PDF): reconhece o layout da página/print da Fazenda e usa o leitor certo
   const looksPage = (t) => /\(\s*C[oó]digo:?[^)]*\)/i.test(t) && /Unit/i.test(t) && /Qtde/i.test(t);
   function parseAny(text) {
+    if (looksIfood(text) && !/cesta-certa-v1/.test(text)) { const f = parseIfoodText(text); if (f) return f; }
     if (/cesta-certa-v1/.test(text)) { const j = parseCestaJSON(text); if (j) return j; }
     if (looksPage(text)) { const d = parseSefazText(text); if (d.items.length) return d; }
     if (looksDanfe(text)) { const d = parseDanfeText(text); if (d.items.length) return d; }
     return parseReceiptText(text);
   }
 
-  const api = { parseNFeXML, parseReceiptText, parseSefazText, parseDanfeText, looksDanfe, parseAny, looseItem, conferir, parseCestaJSON, CESTA_PROMPT };
+  const api = { parseNFeXML, parseReceiptText, parseSefazText, parseDanfeText, looksDanfe, parseAny, looseItem, conferir, parseCestaJSON, CESTA_PROMPT, parseIfoodText, looksIfood, mergeCupom };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Parser = api;
 })(typeof self !== 'undefined' ? self : this);

@@ -353,7 +353,10 @@
     const chips = [[30, '30 dias'], [90, '90 dias'], [365, '12 meses'], [0, 'Tudo']];
     const head = `<div class="chips" role="group" aria-label="Período">${chips.map((c) => `<button class="chip ${ui.dperiod === c[0] ? 'on' : ''}" data-act="dperiod" data-v="${c[0]}">${c[1]}</button>`).join('')}</div>`;
     if (!d.purchases) return head + empty('Sem compras neste período', 'Escolha um período maior ou importe mais notas.');
-    const kpi = `<div class="kpis"><div><div class="k">Gasto</div><div class="v">${brl(d.spent)}</div></div><div><div class="k">Compras</div><div class="v">${d.purchases}</div></div><div><div class="k">Ticket médio</div><div class="v">${brl(d.avg)}</div></div><div><div class="k">Economia possível</div><div class="v ok">${brl(d.saving)}</div></div></div>`;
+    const kpi = `<div class="kpis"><div><div class="k">Gasto</div><div class="v">${brl(d.spent)}</div></div><div><div class="k">Compras</div><div class="v">${d.purchases}</div></div><div><div class="k">Ticket médio</div><div class="v">${brl(d.avg)}</div></div><div><div class="k">Economia possível</div><div class="v ok">${brl(d.saving)}</div></div>${d.benefit || d.fees ? `<div><div class="k">Benefício em apps</div><div class="v ok">${brl(d.benefit)}</div><div class="note">taxas pagas: ${brl(d.fees)}</div></div>` : ''}${d.qdSaving > 0 ? `<div><div class="k">Desconto por quantidade</div><div class="v ok">${brl(d.qdSaving)}</div></div>` : ''}</div>`;
+    const dvs = C.deliveryVsStore(S), shr = C.shrinkAlerts(S);
+    const dvsHTML = dvs.deliveryItems ? `<div class="card stack"><div class="lbl">Delivery × loja</div><div class="note">${dvs.pairs ? `Em ${dvs.pairs} de ${dvs.deliveryItems} itens de delivery achei o mesmo produto no mesmo mercado em até 14 dias. Nesses itens o delivery custou <b>${brl(Math.abs(dvs.extra))} ${dvs.extra >= 0 ? 'a mais' : 'a menos'}</b> que a loja, antes do cupom e das taxas. Benefício líquido dos apps no período: ${brl(d.benefit)}.` : 'Ainda não há o mesmo produto comprado na loja e no delivery, no mesmo mercado e em até 14 dias, para comparar.'}</div></div>` : '';
+    const shrHTML = shr.length ? `<div class="lbl">Encolhimento de embalagem</div><div class="list">${shr.slice(0, 4).map((s) => `<div class="row"><div class="grow"><div class="t">${esc(s.name)}${s.brand ? ' · ' + esc(s.brand) : ''}</div><div class="s">Passou de ${esc(s.from)} para ${esc(s.to)}: o ${s.unit} ficou ${Math.round(s.up * 100)}% mais caro</div></div></div>`).join('')}</div>` : '';
     const mk = hbars(d.markets.slice(0, 6).map((m) => ({ label: m.name, text: m.visits + (m.visits === 1 ? ' visita' : ' visitas'), v: m.visits, sub: `${brl(m.spent)} no total · ${brl(m.avg)} por visita · última em ${fdate(m.last)}` })));
     const pr = hbars(d.products.slice(0, 8).map((p) => ({ label: p.name, text: p.times + (p.times === 1 ? ' compra' : ' compras'), v: p.times, sub: `${fq(p.qty)} ${ulabel(p.unit)} · ${brl(p.spent)}` })), '--m2');
     const spend = hbars(d.products.slice().sort((a, b) => b.spent - a.spent).slice(0, 6).map((p) => ({ label: p.name, text: brl(p.spent), v: p.spent })), '--m3');
@@ -369,6 +372,7 @@
       + `<div class="card stack"><div class="lbl">Onde vai o dinheiro</div>${spend}</div>`
       + br
       + `<div class="card stack"><div class="lbl">Dia da semana das compras</div>${wdays}</div>`
+      + dvsHTML + shrHTML
       + (d.ups.length ? `<div class="lbl">Maiores altas de preço</div><div class="list">${mv(d.ups, true)}</div>` : '')
       + (d.downs.length ? `<div class="lbl">Maiores quedas de preço</div><div class="list">${mv(d.downs, false)}</div>` : '');
   }
@@ -385,10 +389,12 @@
     const chips = [7, 15, 30, 60, 90];
     let h = `<div class="chips">${chips.map((d) => `<button class="chip ${d === hz ? 'on' : ''}" data-act="horizon" data-v="${d}">${d} dias</button>`).join('')}</div>`;
     const total = rows.reduce((a, r) => a + r.cost, 0);
+    const qds = C.qtyDiscounts(S, today(), 60);
     const offs = C.activeOffers(S, today()), offB = (r) => { const f = offs[r.key]; return f && f.unitPrice < r.price - 0.005 ? `<div class="s"><span class="badge down">oferta ${brl(f.unitPrice)} em ${esc(f.market)}${f.validUntil ? ' até ' + fdate(f.validUntil) : ''}</span></div>` : ''; };
+    const qdB = (r) => { const q = qds[r.key]; return q && q.qty > 1 ? `<div class="s"><span class="badge acc">leve ${fq(q.qty)}: ${brl(q.unitPrice)} cada (visto em ${fdate(q.date)}${q.market ? ' no ' + esc(q.market) : ''}; vale conferir se ainda está valendo)</span></div>` : ''; };
     const row = (r) => {
       const on = !!S.shop.checked[r.key];
-      return `<div class="row ${on ? 'done' : ''}"><button class="check ${on ? 'on' : ''}" data-act="tick" data-key="${esc(r.key)}" aria-label="Marcar ${esc(r.name)}">${svg('check', 'icon')}</button><div class="grow"><div class="t">${esc(r.name)}</div><div class="s">${r.daysLeft < 1 ? 'acabou' : 'dura ~' + Math.round(r.daysLeft) + ' d'} · ${esc(r.market)} ${brl(r.price)}</div>${offB(r)}</div><div class="r"><div class="price">${fq(r.qty)} ${ulabel(r.unit)}</div><div class="s mono">${brl(r.cost)}</div></div></div>`;
+      return `<div class="row ${on ? 'done' : ''}"><button class="check ${on ? 'on' : ''}" data-act="tick" data-key="${esc(r.key)}" aria-label="Marcar ${esc(r.name)}">${svg('check', 'icon')}</button><div class="grow"><div class="t">${esc(r.name)}</div><div class="s">${r.daysLeft < 1 ? 'acabou' : 'dura ~' + Math.round(r.daysLeft) + ' d'} · ${esc(r.market)} ${brl(r.price)}</div>${offB(r)}${qdB(r)}</div><div class="r"><div class="price">${fq(r.qty)} ${ulabel(r.unit)}</div><div class="s mono">${brl(r.cost)}</div></div></div>`;
     };
     if (rows.length) {
       h += `<div class="summary" style="grid-template-columns:1fr 1.4fr"><div><div class="k">Itens</div><div class="v">${rows.length}</div></div><div><div class="k">Estimado (menor preço)</div><div class="v big">${brl(total)}</div></div></div>`;
@@ -489,7 +495,8 @@
       <div class="note">${p.channel && p.channel !== 'loja' ? '<b>' + esc(C.channelLabel(p.channel)) + ' · ' + esc(p.marketName || '') + (p.order ? ' · pedido ' + esc(p.order) : '') + '</b><br>' : ''}${fdate(p.date)}${p.city ? ' · ' + esc(p.city) : ''} · ${p.source === 'xml' ? 'XML da nota' : p.source === 'page' ? 'página da Fazenda' : p.source === 'pdf' ? 'PDF' : p.source === 'ocr' ? 'foto/OCR' : 'digitada'}</div>
       <div id="cmp" class="stack">${cmpHTML(id)}</div>
       ${p.discount ? `<div class="leader"><span class="n">Desconto sem item</span><span class="dots"></span><span class="v">−${brl(p.discount)}</span></div>` : ''}
-      <div class="leader"><span class="n"><b>Total pago</b></span><span class="dots"></span><span class="v">${brl(p.total)}</span></div>
+      <div class="leader"><span class="n">${p.paid > 0 ? 'Total da nota' : '<b>Total pago</b>'}</span><span class="dots"></span><span class="v">${brl(p.total)}</span></div>
+      ${p.paid > 0 || p.coupon ? `${p.coupon ? `<div class="leader"><span class="n">Cupom do app</span><span class="dots"></span><span class="v">−${brl(p.coupon)}</span></div>` : ''}${C.appLower(p) > 0 ? `<div class="leader"><span class="n">Preço menor no app</span><span class="dots"></span><span class="v">−${brl(C.appLower(p))}</span></div>` : ''}${p.fees ? `<div class="leader"><span class="n">Taxas (serviço + entrega)</span><span class="dots"></span><span class="v">+${brl(p.fees)}</span></div>` : ''}<div class="leader"><span class="n"><b>Total pago</b></span><span class="dots"></span><span class="v">${brl(C.spentOf(p))}</span></div><div class="note ok">Benefício líquido do app: ${brl(C.benefitOf(p))}</div>` : ''}
       <div class="foot"><button class="btn danger" data-act="pdel" data-id="${esc(id)}">Excluir</button><button class="btn" data-act="pedit" data-id="${esc(id)}">Editar</button></div>`);
   }
   const prettyOf = (key, fallback) => { const p = S.products.find((x) => x.key === key); return p ? p.name : C.prettyName(fallback); };
@@ -795,7 +802,7 @@
     if (cm && cm !== t.slice(0, 7)) { d.date = cm + '-01'; d.dateMsg = `Pela chave da nota, a compra foi em ${cm.slice(5)}/${cm.slice(0, 4)}. Não achei o dia: confira.`; }
     else { d.date = t; d.dateMsg = cm ? 'A página da Fazenda não mostra a data. Coloquei a de hoje (o mês confere com a chave da nota). Confira o dia.' : 'Não consegui ler a data da nota. Coloquei a de hoje, confira.'; }
   }
-  const itemsOfPurchase = (p) => S.items.filter((i) => i.purchaseId === p.id).map((i) => { const o = i.orig || i; return { name: i.name, std: prettyOf(i.productKey, i.name), brand: C.brandOf(S.products.find((x) => x.key === i.productKey)), brandAuto: false, keepStd: true, ean: i.ean, scode: i.scode || '', promo: !!i.promo, qty: o.qty, unit: o.unit, unitPrice: o.unitPrice, total: i.total, disc: i.disc || 0 }; });
+  const itemsOfPurchase = (p) => S.items.filter((i) => i.purchaseId === p.id).map((i) => { const o = i.orig || i; return { name: i.name, std: prettyOf(i.productKey, i.name), brand: C.brandOf(S.products.find((x) => x.key === i.productKey)), brandAuto: false, keepStd: true, ean: i.ean, scode: i.scode || '', promo: !!i.promo, qty: o.qty, unit: o.unit, unitPrice: o.unitPrice, total: i.total, disc: i.disc || 0, qd: i.qd || 0 }; });
   function reviewQueue(q, i) {
     if (i >= q.length) return;
     const d = q[i].draft;
@@ -809,7 +816,7 @@
     opts = opts || {};
     const items = (draft.items && draft.items.length ? draft.items : [{ name: '', qty: 1, unit: 'UN', unitPrice: '' }]).map((i) => Object.assign({}, i));
     items.forEach((i) => { if (i.std === undefined) suggestStd(i, false); else if (i.stdAuto === undefined) i.stdAuto = !i.keepStd; });
-    items.forEach((i) => { i.disc0 = i.disc || 0; });
+    items.forEach((i) => { i.disc0 = i.disc || 0; if (i.qd === undefined && i.discount > 0) i.qd = i.discount; });
     const dt = C.round(C.num(draft.discount) || 0, 2);
     RV = { draft, items, opts, discTotal: dt, drows: dt > 0 ? [{ item: null, amt: '' }] : [] };
     const markets = Array.from(new Set(S.purchases.map((p) => p.marketName))).sort();
@@ -824,10 +831,12 @@
       ${draft.photoFile ? `<details ${draft.readError || !(draft.items && draft.items.length) || (draft.items || []).some((i) => i.check) ? 'open' : ''}><summary class="note">Foto da nota</summary><img id="rv-photo" alt="Foto da nota" style="max-width:100%;border-radius:10px"></details>` : ''}
       ${draft.source === 'page' ? `<div class="note warn">Nota lida da página da Fazenda. Os nomes vêm como o mercado cadastrou e não há código de barras. Confira antes de salvar.</div>` : warn ? `<div class="note warn">Confira os itens lidos. Linhas em amarelo têm números que não fecham.</div>` : ''}
       <div id="rv-sum" class="rvsum"></div>
+      <div id="rv-qrc"></div>
       <div class="field"><label for="rv-m">Mercado</label><input id="rv-m" class="in" list="dl-m" value="${esc(mk.name || draft.marketName || '')}" placeholder="Nome do mercado" autocomplete="off">${cnpjOk && !mk.known ? `<div class="note" id="rv-mnote">${mk.fromRede ? 'Parece outra loja da rede ' + esc(mk.fromRede) + '. Confirme ou ajuste o nome.' : 'Nome vindo da razão social. Digite o nome que você usa (ex.: SMC): vou lembrar para este CNPJ.'}</div>` : ''}</div>
       <div class="field"><label for="rv-d">Data</label><input id="rv-d" class="in" type="date" value="${esc(draft.date || today())}">${draft.dateGuess ? `<div class="note warn">${esc(draft.dateMsg || 'Não consegui ler a data da nota. Coloquei a de hoje, confira.')}</div>` : ''}</div>
       <datalist id="dl-m">${markets.map((m) => `<option value="${esc(m)}">`).join('')}</datalist>
       <div class="field"><label for="rv-ch">Canal da compra</label><select id="rv-ch" class="in">${Object.keys(C.CHANNELS).map((k) => `<option value="${k}" ${(draft.channel || 'loja') === k ? 'selected' : ''}>${C.CHANNELS[k]}</option>`).join('')}</select></div>
+      <div id="rv-dlv" class="stack" ${(draft.channel || 'loja') === 'loja' ? 'hidden' : ''}><div class="two"><div class="field"><label for="rv-cp">Cupom do app (R$)</label><input id="rv-cp" class="in num" inputmode="decimal" value="${draft.coupon ? String(draft.coupon).replace('.', ',') : ''}" autocomplete="off"></div><div class="field"><label for="rv-fe">Taxas: serviço + entrega</label><input id="rv-fe" class="in num" inputmode="decimal" value="${draft.fees ? String(draft.fees).replace('.', ',') : ''}" autocomplete="off"></div></div><div class="field"><label for="rv-pd">Total pago (R$)</label><input id="rv-pd" class="in num" inputmode="decimal" value="${draft.paid ? String(draft.paid).replace('.', ',') : ''}" autocomplete="off"></div><div id="rv-bn" class="note"></div></div>
       <div class="field" id="rv-ordbox" ${(draft.channel || 'loja') === 'loja' ? 'hidden' : ''}><label for="rv-ord">Nº do pedido (opcional)</label><input id="rv-ord" class="in" value="${esc(draft.order || '')}" inputmode="numeric" autocomplete="off"></div>
       <div id="rv-queue"></div>
       <div id="rv-items"></div>
@@ -837,7 +846,7 @@
       ${draft.printedTotal ? '<div id="rv-chk" class="note"></div>' : ''}<div id="rv-conf" class="stack"></div>
       ${draft.rawText ? `<details><summary class="note">Texto lido da nota</summary><pre class="note" style="white-space:pre-wrap">${esc(draft.rawText)}</pre></details>` : ''}
       <div class="foot end">${opts.skip ? '<button class="btn" data-act="rv-skip">Pular</button>' : '<button class="btn" data-act="close">Cancelar</button>'}<button class="btn primary" data-act="rv-save">Salvar compra</button></div>`, { lock: !!opts.skip });
-    drawItems(); drawDisc(); drawQueue();
+    drawItems(); drawDisc(); drawQueue(); drawQrc(); dlvNote();
     if (cnpjOk && !mk.known && !mk.fromRede && typeof fetch === 'function') {
       const rvRef = RV, cn = String(draft.marketCnpj).replace(/\D/g, '');
       Promise.race([fetch('https://brasilapi.com.br/api/cnpj/v1/' + cn).then((r) => (r.ok ? r.json() : null)), new Promise((r) => setTimeout(() => r(null), 5000))]).then((j) => {
@@ -972,6 +981,7 @@
     const t = $('#rv-tot'); if (!t) return;
     const tot = RV.items.reduce((a, i) => a + itemTotal(i), 0) - discRest();
     t.textContent = brl(tot);
+    dlvNote();
     const sm = $('#rv-sum');
     if (sm) {
       const nItems = RV.items.filter((i) => String(i.name).trim()).length, pt0 = RV.draft.printedTotal, dd = pt0 ? C.round(tot - pt0, 2) : 0;
@@ -988,6 +998,33 @@
     }
   }
 
+  /* Completar a nota lida pelo QR (sem código de barras nem descontos) com a foto ou o texto do cupom */
+  function drawQrc(msg) {
+    const box = $('#rv-qrc'); if (!box || !RV) return;
+    if (RV.qrcHide || !(RV.draft.source === 'page' || RV.draft.source === 'qr') || RV.opts.replaceId) { box.innerHTML = msg ? `<div class="note ok">${esc(msg)}</div>` : ''; return; }
+    box.innerHTML = `<div class="card stack"><div class="lbl">Completar com o cupom (código de barras e descontos)</div><div class="note">${esc(msg || 'O QR não traz o código de barras nem os descontos por item. Fotografe o cupom ou cole o texto dele. É só para cupom de loja (NFC-e), não para DANFE.')}</div>
+      <div class="pick"><div class="btn block">${svg('camera', 'icon')} Fotografar o cupom</div><input id="qrc-file" type="file" accept="image/*" multiple aria-label="Fotografar o cupom"></div>
+      <textarea id="qrc-txt" class="in" rows="3" placeholder="Ou cole aqui o texto do cupom"></textarea>
+      <div class="foot end"><button class="btn" data-act="qrc-skip">Agora não</button><button class="btn primary" data-act="qrc-paste">Aplicar texto</button></div></div>`;
+  }
+  function applyCupom(cupom) {
+    const tmp = RV.items.map((i) => { const q = C.num(i.qty) || 1, u = C.num(i.unitPrice) || 0; return { ref: i, qty: q, unitPrice: u, total: C.round(q * u, 2), ean: i.ean || '', scode: i.scode || '', name: i.name }; });
+    const r = Parser.mergeCupom({ items: tmp, date: '' }, cupom);
+    tmp.forEach((t) => { const i = t.ref; if (t.ean && !i.ean) i.ean = t.ean; if (t.scode && !i.scode) i.scode = t.scode; if (t.qd > 0 && !(i.qd > 0)) { i.qd = t.qd; i.unitPrice = String(t.unitPrice).replace('.', ','); } });
+    RV.items.forEach((i) => { if (i.ean && !i.eanTouched) i.eanFrom = i.eanFrom || 'cupom'; });
+    drawItems(); updTotal();
+    RV.qrcHide = false;
+    drawQrc(`Achei ${r.eans} de ${r.total} códigos de barras e ${r.discounts} desconto${r.discounts === 1 ? '' : 's'} em ${r.matched} itens ligados ao cupom.` + (r.matched < r.total ? ' Os demais ficaram como estavam.' : ''));
+    return r;
+  }
+  function dlvNote() {
+    const bn = $('#rv-bn'); if (!bn || !RV) return;
+    const g = (id) => C.num(($(id) || {}).value) || 0;
+    const tot = C.round(RV.items.reduce((s, i) => s + (C.num(i.qty) * C.num(i.unitPrice) || 0), 0) - discRest(), 2), cp = g('#rv-cp'), fe = g('#rv-fe'), pd = g('#rv-pd');
+    if (!(pd > 0)) { bn.textContent = 'Informe o total pago no app para eu calcular o benefício. Os produtos ficam com o preço da nota.'; return; }
+    const p = { total: tot, coupon: cp, fees: fe, paid: pd }, low = C.appLower(p), ben = C.benefitOf(p);
+    bn.textContent = `Nota ${brl(tot)} − cupom ${brl(cp)} + taxas ${brl(fe)} = ${brl(tot - cp + fe)}. Você pagou ${brl(pd)}${low > 0 ? `: preço menor no app ${brl(low)}` : ''}. Benefício líquido do app: ${brl(ben)}.`;
+  }
   async function saveReview() {
     const mName = $('#rv-m').value.trim(), date = $('#rv-d').value;
     if (!mName) return toast('Informe o mercado');
@@ -998,8 +1035,10 @@
     const draft = {
       id: replaceId || d.id, date, marketName: mName, marketCnpj: d.marketCnpj, city: d.city, source: d.source || 'manual',
       channel: ($('#rv-ch') || {}).value || d.channel || 'loja', order: (($('#rv-ord') || {}).value || d.order || '').trim(),
-      items: valid.map((i) => ({ name: String(i.name).trim(), std: String(i.std || '').trim(), brand: String(i.brand || '').trim(), ean: String(i.ean || '').replace(/\D/g, ''), scode: i.scode || i.code || '', promo: !!i.promo, qty: C.num(i.qty), unit: String(i.unit || 'UN').trim(), unitPrice: C.num(i.unitPrice), total: C.num((C.num(i.qty) * C.num(i.unitPrice)).toFixed(2)), disc: i.disc || 0 })),
+      coupon: 0, fees: 0, paid: 0,
+      items: valid.map((i) => ({ name: String(i.name).trim(), std: String(i.std || '').trim(), brand: String(i.brand || '').trim(), ean: String(i.ean || '').replace(/\D/g, ''), scode: i.scode || i.code || '', promo: !!i.promo, qty: C.num(i.qty), unit: String(i.unit || 'UN').trim(), unitPrice: C.num(i.unitPrice), total: C.num((C.num(i.qty) * C.num(i.unitPrice)).toFixed(2)), disc: i.disc || 0, qd: i.qd || 0 })),
     };
+    if (draft.channel !== 'loja') { draft.coupon = C.num(($('#rv-cp') || {}).value) || 0; draft.fees = C.num(($('#rv-fe') || {}).value) || 0; draft.paid = C.num(($('#rv-pd') || {}).value) || 0; }
     const disc = discRest();
     draft.discount = disc; draft.total = C.round(draft.items.reduce((a, i) => a + i.total, 0) - disc, 2);
     if (!replaceId && !RV.dupOk) { // nota repetida (mesma compra vinda por outro caminho)
@@ -1084,7 +1123,7 @@
     pedit: (el) => {
       const p = S.purchases.find((x) => x.id === el.dataset.id); if (!p) return;
       const items = itemsOfPurchase(p);
-      openReview({ marketName: p.marketName, marketCnpj: p.marketCnpj, city: p.city, date: p.date, items, source: p.source, discount: p.discount || 0, channel: p.channel || 'loja', order: p.order || '' }, { title: 'Editar compra', replaceId: p.id });
+      openReview({ marketName: p.marketName, marketCnpj: p.marketCnpj, city: p.city, date: p.date, items, source: p.source, discount: p.discount || 0, channel: p.channel || 'loja', order: p.order || '', coupon: p.coupon || 0, fees: p.fees || 0, paid: p.paid || 0 }, { title: 'Editar compra', replaceId: p.id });
     },
     product: (el) => openProduct(el.dataset.key),
     hist: (el) => { ui.hist = el.dataset.v; const h = $('#hist'); if (h) h.innerHTML = histHTML(ui.curKey); },
@@ -1165,6 +1204,8 @@
         }
       } catch (e) { toast('Não consegui ler o código de barras'); }
     },
+    'qrc-skip': () => { if (RV) { RV.qrcHide = true; drawQrc(); } },
+    'qrc-paste': () => { const t = ($('#qrc-txt') || {}).value || ''; if (!t.trim()) return toast('Cole o texto do cupom'); const c = Parser.parseAny(t); if (!c.items.length) return toast('Não achei itens nesse texto'); applyCupom(c); },
     'copy-prompt': () => copyText(Parser.CESTA_PROMPT).then(() => toast('Instrução copiada'), () => toast('Não consegui copiar')),
     'dup-force': () => { if (RV) { RV.dupOk = true; saveReview(); } },
     'dup-view': (el) => { closeSheet(); openPurchase(el.dataset.id); },
@@ -1193,6 +1234,7 @@
   document.addEventListener('input', (e) => {
     const t = e.target;
     if (t.id === 'pb') { pbSug(); return; }
+    if (t.id === 'rv-cp' || t.id === 'rv-fe' || t.id === 'rv-pd') { dlvNote(); return; }
     if (t.id === 'rv-disc') { RV.discTotal = Math.max(0, C.num(t.value) || 0); updTotal(); paintDiscStatus(); return; }
     if (t.dataset && t.dataset.d === 'amt' && RV) { const r = RV.drows[+t.closest('.drow').dataset.n]; if (r) { r.amt = t.value; recalcDisc(); } return; }
     if (t.dataset && t.dataset.of && OF) {
@@ -1228,8 +1270,14 @@
     if (t.id === 'f-offer' || t.id === 'f-offer-cam') { const files = t.files; processOffers(files); return; }
     if (t.id === 'of-ai') { ui.ofAI = t.checked; return; }
     if (t.id === 'of-v' && OF) { OF.validUntil = t.value; return; }
+    if (t.id === 'qrc-file') {
+      const files = Array.from(t.files || []); if (!files.length || !RV) return;
+      const box = $('#rv-qrc'); if (box) box.innerHTML = '<div class="note">Lendo o cupom…</div>';
+      (async () => { const all = { items: [] }; for (const f of files) { try { const r = await Importers.readFile(f, () => {}); (r.draft.items || []).forEach((x) => all.items.push(x)); if (r.draft.date && !all.date) all.date = r.draft.date; } catch (e) { /* segue */ } } if (!all.items.length) { drawQrc('Não consegui ler itens nessa foto. Tente colar o texto.'); return; } applyCupom(all); })();
+      return;
+    }
     if (t.id === 'f-doc' || t.id === 'f-img' || t.id === 'f-cam') { const files = t.files; closeSheet(); processFiles(files); }
-    if (t.id === 'rv-ch') { const b = $('#rv-ordbox'); if (b) b.hidden = t.value === 'loja'; return; }
+    if (t.id === 'rv-ch') { const b = $('#rv-ordbox'); if (b) b.hidden = t.value === 'loja'; const dv = $('#rv-dlv'); if (dv) dv.hidden = t.value === 'loja'; return; }
     if (t.dataset && t.dataset.d === 'sel' && RV) { const r = RV.drows[+t.closest('.drow').dataset.n]; if (r) { r.item = RV.items[+t.value] || null; recalcDisc(); } }
     if (t.id === 'bk' && t.files[0]) restore(t.files[0]);
     if (t.id === 'f-qr' && t.files[0]) {
@@ -1250,6 +1298,8 @@
     }
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#sheet').hidden && !RV) closeSheet(); });
+
+  self.CestaTest = { openReview }; // usado pelos testes automáticos
 
   /* ---------- início ---------- */
   load().then(() => { render(); }).catch(() => { persistent = false; render(); });

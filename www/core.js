@@ -79,6 +79,7 @@
 
   /* Descobre a qual produto do catálogo um item pertence, e (se for novo) cria. Retorna o produto.
      Ordem: nome comum confirmado que já existe > código de barras > texto da nota já aprendido > nome comum igual > novo. */
+  const isBag = (n) => /\b(SACOLA|SACOLINHA|SAC\.?\s?INST|SAC\.?\s?BIO|SACO\s+PLASTICO)\b/.test(norm(n).replace(/SAC INST/g,'SAC INST'));
   function resolveProduct(S, raw, stdName, info, confirmed) {
     const ean = validEAN(raw.ean) ? cleanEAN(raw.ean) : '';
     const eanKey = ean ? 'e:' + ean : '', textKey = 'n:' + norm(raw.name), nameKey = 'n:' + norm(stdName);
@@ -93,7 +94,8 @@
     if (!prod && byName) prod = byName;
     if (!prod) {
       const key = eanKey ? followAlias(S.aliases, eanKey) : followAlias(S.aliases, nameKey);
-      prod = { key, name: stdName, brand: String(raw.brand || '').trim() || info.brand || Std.brandIn(stdName), ean, eans: ean ? [ean] : [], unit: { kg: 'KG', l: 'L', dz: 'DZ', un: 'UN' }[info.base], base: info.base, pack: Std.sizeOf(stdName), ignore: false, count: null };
+      const bag = isBag(stdName) || isBag(raw.name);
+      prod = { key, name: stdName, brand: String(raw.brand || '').trim() || info.brand || Std.brandIn(stdName), ean, eans: ean ? [ean] : [], unit: { kg: 'KG', l: 'L', dz: 'DZ', un: 'UN' }[info.base], base: info.base, pack: Std.sizeOf(stdName), ignore: bag, bag, count: null };
       S.products.push(prod);
     } else {
       if (confirmed && norm(prod.name) !== norm(stdName) && !byName) prod.name = stdName; // você renomeou o produto na conferência
@@ -180,6 +182,8 @@
         promo: !!raw.promo, scode: String(raw.scode || raw.code || '').trim(), channel: draft.channel || 'loja',
         disc: round(num(raw.disc) || 0, 2), orig: { qty, unit, unitPrice: round(unitPrice, 4) },
       });
+      const qd = round(num(raw.qd) || 0, 2);
+      if (qd > 0 && nz.qty > 0) { const it = items[items.length - 1]; it.qd = qd; it.shelf = round(it.unitPrice + qd / nz.qty, 4); it.qdMin = nz.unit === 'UN' || nz.unit === 'DZ' ? nz.qty : 0; }
     });
     if (!items.length) return { empty: true, id };
     const purchase = {
@@ -187,6 +191,7 @@
       city: draft.city || '', discount: round(num(draft.discount) || 0, 2), total: round(isFinite(num(draft.total)) && draft.total ? num(draft.total) : total, 2),
       source: draft.source || 'manual', demo: !!draft.demo, n: items.length,
       channel: draft.channel || 'loja', order: String(draft.order || '').trim(),
+      coupon: round(num(draft.coupon) || 0, 2), fees: round(num(draft.fees) || 0, 2), paid: num(draft.paid) > 0 ? round(num(draft.paid), 2) : 0,
     };
     S.purchases.push(purchase);
     S.items.push(...items);
@@ -238,20 +243,79 @@
   }
 
 
+
+  /* ---------- delivery: total da nota x total pago ---------- */
+  // gasto real: o total pago (delivery) ou o total da nota
+  const spentOf = (p) => (p.paid > 0 ? p.paid : p.total);
+  // preço menor no app = o que sobra entre (nota - cupom + taxas) e o que foi pago
+  const appLower = (p) => (p.paid > 0 ? Math.max(0, round(p.total - (p.coupon || 0) + (p.fees || 0) - p.paid, 2)) : 0);
+  // benefício líquido do app = cupom + preço menor no app - taxas
+  const benefitOf = (p) => (p.paid > 0 || p.coupon ? round((p.coupon || 0) + appLower(p) - (p.fees || 0), 2) : 0);
+
+  /* ---------- desconto por quantidade ---------- */
+  // Itens comprados com desconto por quantidade (qd) nos últimos `days` dias, por produto
+  function qtyDiscounts(S, today, days) {
+    today = today || todayISO(); const from = addDays(today, -(days || 90)), out = {};
+    S.items.forEach((i) => {
+      if (!(i.qd > 0) || i.date < from || i.date > today) return;
+      const p = S.products.find((x) => x.key === i.productKey); if (!p || p.ignore) return;
+      const cur = out[i.productKey];
+      if (!cur || i.date > cur.date) out[i.productKey] = { key: i.productKey, name: p.name, date: i.date, market: i.marketName, qty: i.qty, unit: i.unit, unitPrice: i.unitPrice, shelf: i.shelf, perUnit: round(i.qd / i.qty, 2) };
+    });
+    return out;
+  }
+
+  /* ---------- delivery x loja: mesmo produto, mesmo mercado, até 14 dias de diferença ---------- */
+  function deliveryVsStore(S) {
+    let n = 0, extra = 0, compared = 0, deliveryItems = 0;
+    const store = S.items.filter((i) => (i.channel || 'loja') === 'loja' && !i.promo);
+    S.items.forEach((d) => {
+      if ((d.channel || 'loja') === 'loja') return;
+      deliveryItems++;
+      let best = null;
+      store.forEach((l) => { if (l.productKey === d.productKey && l.marketKey === d.marketKey && Math.abs(daysBetween(l.date, d.date)) <= 14) { if (!best || Math.abs(daysBetween(l.date, d.date)) < Math.abs(daysBetween(best.date, d.date))) best = l; } });
+      if (best) { n++; compared++; extra += d.total - best.unitPrice * d.qty; }
+    });
+    return { pairs: n, deliveryItems, extra: round(extra, 2), covered: compared };
+  }
+
+  /* ---------- encolhimento: mesma marca/produto, embalagem menor, preço do kg/L subiu ---------- */
+  function shrinkAlerts(S) {
+    const groups = {};
+    S.products.forEach((p) => {
+      if (p.ignore) return;
+      const sz = Std.sizeOf(p.name); if (!sz) return;
+      const k = genericKey(p).replace(/\b\d+(?: \d+)? ?(?:KG|G|ML|L)\b/g, '').replace(/\s+/g, ' ').trim() + '|' + brandOf(p).toUpperCase() + '|' + sz.unit;
+      (groups[k] = groups[k] || []).push({ p, sz });
+    });
+    const out = [];
+    Object.keys(groups).forEach((k) => {
+      const g = groups[k]; if (g.length < 2) return;
+      const rows = g.map((x) => { const its = S.items.filter((i) => i.productKey === x.p.key && !i.promo).sort((a, b) => (a.date < b.date ? -1 : 1)); const last = its[its.length - 1]; return last ? { p: x.p, sz: x.sz, last } : null; }).filter(Boolean).sort((a, b) => (a.last.date < b.last.date ? -1 : 1));
+      for (let i = 1; i < rows.length; i++) {
+        const a = rows[i - 1], b = rows[i];
+        if (!(b.sz.amount < a.sz.amount - 1e-9)) continue;
+        const pa = a.last.unitPrice / a.sz.amount, pb = b.last.unitPrice / b.sz.amount, up = (pb - pa) / pa;
+        if (up >= 0.03) out.push({ name: Std.genericName(b.p.name, brandOf(b.p)), brand: brandOf(b.p), from: Std.sizeLabel(a.sz), to: Std.sizeLabel(b.sz), up: round(up, 3), unit: a.sz.unit === 'kg' ? 'kg' : 'L', date: b.last.date });
+      }
+    });
+    return out.sort((x, y) => y.up - x.up);
+  }
+
   /* ---------- painel: estatísticas do período ---------- */
   function dashboard(S, opts) {
     opts = opts || {};
     const today = opts.today || todayISO(), days = opts.days || 0, from = days ? addDays(today, -days) : '0000-01-01';
     const P = S.purchases.filter((p) => p.date >= from && p.date <= today);
     const ids = new Set(P.map((p) => p.id)), I = S.items.filter((i) => ids.has(i.purchaseId));
-    const spent = round(P.reduce((a, p) => a + p.total, 0), 2);
+    const spent = round(P.reduce((a, p) => a + spentOf(p), 0), 2);
     // mercados
     const mk = {};
-    P.forEach((p) => { const m = (mk[p.marketKey] = mk[p.marketKey] || { key: p.marketKey, name: p.marketName, visits: 0, spent: 0, last: '' }); m.visits++; m.spent += p.total; if (p.date > m.last) m.last = p.date; });
+    P.forEach((p) => { const m = (mk[p.marketKey] = mk[p.marketKey] || { key: p.marketKey, name: p.marketName, visits: 0, spent: 0, last: '' }); m.visits++; m.spent += spentOf(p); if (p.date > m.last) m.last = p.date; });
     const markets = Object.values(mk).map((m) => Object.assign(m, { spent: round(m.spent, 2), avg: round(m.spent / m.visits, 2) })).sort((a, b) => b.visits - a.visits || b.spent - a.spent);
     // meses (os últimos 12 dentro do período, em ordem cronológica)
     const mo = {};
-    P.forEach((p) => { const k = p.date.slice(0, 7); mo[k] = (mo[k] || 0) + p.total; });
+    P.forEach((p) => { const k = p.date.slice(0, 7); mo[k] = (mo[k] || 0) + spentOf(p); });
     const months = Object.keys(mo).sort().slice(-12).map((k) => ({ month: k, spent: round(mo[k], 2) }));
     // produtos mais comprados (em quantas compras apareceu) e marcas
     const pr = {}, br = {};
@@ -265,7 +329,7 @@
     const brands = Object.values(br).map((g) => ({ brand: g.brand, times: g.buys.size, spent: round(g.spent, 2), n: g.products.size })).sort((a, b) => b.spent - a.spent);
     // dia da semana
     const wd = [0, 1, 2, 3, 4, 5, 6].map((d) => ({ d, visits: 0, spent: 0 }));
-    P.forEach((p) => { const w = wd[new Date(parseDate(p.date)).getUTCDay()]; w.visits++; w.spent += p.total; });
+    P.forEach((p) => { const w = wd[new Date(parseDate(p.date)).getUTCDay()]; w.visits++; w.spent += spentOf(p); });
     // maiores altas e quedas (primeiro x último preço no período, mínimo 2 compras em dias diferentes)
     const by = {};
     I.forEach((i) => { if (!i.promo) (by[i.productKey] = by[i.productKey] || []).push(i); });
@@ -280,7 +344,8 @@
     // economia possível: soma da comparação de cada compra do período com o melhor preço dos 12 meses anteriores
     let saving = 0;
     P.forEach((p) => { const r = compare(S, p.id, { months: 12, today }); if (r) saving += r.saving; });
-    return { from, today, purchases: P.length, spent, avg: P.length ? round(spent / P.length, 2) : 0, saving: round(saving, 2), markets, months, products, brands, weekdays: wd.map((w) => Object.assign(w, { spent: round(w.spent, 2) })), ups, downs, nItems: I.length };
+    const benefit = round(P.reduce((a, p) => a + benefitOf(p), 0), 2), fees = round(P.reduce((a, p) => a + (p.fees || 0), 0), 2), qdSaving = round(I.reduce((a, i) => a + (i.qd > 0 ? i.qd : 0), 0), 2);
+    return { benefit, fees, qdSaving, from, today, purchases: P.length, spent, avg: P.length ? round(spent / P.length, 2) : 0, saving: round(saving, 2), markets, months, products, brands, weekdays: wd.map((w) => Object.assign(w, { spent: round(w.spent, 2) })), ups, downs, nItems: I.length };
   }
 
 
@@ -448,7 +513,7 @@
       const last = pits[pits.length - 1], lastBuy = its[its.length - 1];
       // variação: último preço vs. preço da compra anterior (data diferente)
       let prev = null;
-      for (let i = pits.length - 1; i >= 0; i--) if (pits[i].date < last.date) { prev = pits[i]; break; }
+      for (let i = pits.length - 1; i >= 0; i--) if (pits[i].date < last.date && (pits[i].channel || 'loja') === (last.channel || 'loja')) { prev = pits[i]; break; }
       const chg = prev ? (last.unitPrice - prev.unitPrice) / prev.unitPrice : null;
       const first = pits[0];
       const chgFirst = first.date < last.date ? (last.unitPrice - first.unitPrice) / first.unitPrice : null;
@@ -566,7 +631,7 @@
   }
 
   const api = {
-    promoHint, suggestMarket, setMarketName, cleanMarketName, chaveMonth, norm, prettyName, num, cleanEAN, gtinOK, internalCode, parseDate, daysBetween, toISO, todayISO, addDays, validEAN, round, resolveKey, marketKey,
+    spentOf, appLower, benefitOf, qtyDiscounts, deliveryVsStore, shrinkAlerts, isBag, promoHint, suggestMarket, setMarketName, cleanMarketName, chaveMonth, norm, prettyName, num, cleanEAN, gtinOK, internalCode, parseDate, daysBetween, toISO, todayISO, addDays, validEAN, round, resolveKey, marketKey,
     newState, addPurchase, findSimilarPurchase, findKnown, sizeConflict, channelLabel, CHANNELS, brandOf, genericKey, dashboard, evalOffer, activeOffers, compare, addMonthsISO, removePurchase, pruneProducts, mergeProducts, analyze, suggest, marketIndex, demoDrafts, roundQty,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Core = api;
