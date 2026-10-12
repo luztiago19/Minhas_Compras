@@ -580,6 +580,8 @@
           <input id="f-cam" type="file" accept="image/*" capture="environment" aria-label="Tirar foto da nota"></div>`}
         <div class="pick"><div class="btn block" style="justify-content:flex-start;padding:14px">${svg('file', 'icon')}<span style="text-align:left"><b>Foto ou print da galeria</b><br><span class="note">Escolha uma ou várias imagens já salvas</span></span></div>
           <input id="f-img" type="file" accept="image/*" multiple aria-label="Escolher foto da nota na galeria"></div>
+        <div class="pick"><div class="btn block" style="justify-content:flex-start;padding:14px">${svg('camera', 'icon')}<span style="text-align:left"><b>Várias fotos da mesma nota</b><br><span class="note">Para cupom longo ou foto ruim: escolha 2 ou 3 fotos (partes diferentes ou repetidas). Eu junto e fico com o que concorda.</span></span></div>
+          <input id="f-multi" type="file" accept="image/*" multiple aria-label="Escolher várias fotos da mesma nota"></div>
         <button class="btn block" data-act="paste" style="justify-content:flex-start;padding:14px">${svg('link', 'icon')}<span style="text-align:left"><b>Link ou texto da nota (QR code)</b><br><span class="note">Abra a nota pelo QR code, copie o texto e cole aqui</span></span></button>
         <button class="btn block" data-act="offer" style="justify-content:flex-start;padding:14px">${svg('camera', 'icon')}<span style="text-align:left"><b>Folheto, banner ou etiqueta</b><br><span class="note">Lê os preços e compara com o seu histórico</span></span></button>
         <button class="btn block" data-act="manual" style="justify-content:flex-start;padding:14px">${svg('type', 'icon')}<span style="text-align:left"><b>Digitar manualmente</b><br><span class="note">Para compras sem nota</span></span></button>
@@ -678,7 +680,7 @@
     openReview(d, { title: 'Conferir nota' });
   }
 
-  async function processFiles(files) {
+  async function processFiles(files, opts) {
     files = Array.from(files); if (!files.length) return;
     openSheet('Lendo notas', `<div class="stack"><div class="note" id="pg-t">Preparando…</div><div class="bar"><i id="pg-b"></i></div><div class="note" id="pg-s"></div></div>`, { lock: true });
     const stat = { added: 0, dup: 0, fail: [] }, queue = [];
@@ -708,6 +710,10 @@
     if (stat.manual) parts.push(stat.manual + ' para preencher à mão');
     if (parts.length) toast(parts.join(' · '));
     if (stat.fail.length) console.warn('Falhas na importação:', stat.fail);
+    if (opts && opts.sameNote && queue.length > 1) { // várias fotos da mesma nota: junta as leituras e fica com o que concorda
+      const m = Parser.mergeReads(queue.map((q) => q.draft));
+      if (m) { m.photoFile = queue[0].draft.photoFile; if (!m.date) guessDate(m); refineDraft(m); toast(`Juntei ${queue.length} fotos numa só nota`); reviewQueue([{ draft: m, name: 'várias fotos' }], 0); return; }
+    }
     reviewQueue(mergeDanfe(queue), 0);
   }
   // várias folhas da mesma DANFE (mesma chave, ou folha 1/2 + 2/2) viram uma compra só
@@ -1277,6 +1283,7 @@
       return;
     }
     if (t.id === 'f-doc' || t.id === 'f-img' || t.id === 'f-cam') { const files = t.files; closeSheet(); processFiles(files); }
+    if (t.id === 'f-multi') { const files = t.files; closeSheet(); processFiles(files, { sameNote: true }); }
     if (t.id === 'rv-ch') { const b = $('#rv-ordbox'); if (b) b.hidden = t.value === 'loja'; const dv = $('#rv-dlv'); if (dv) dv.hidden = t.value === 'loja'; return; }
     if (t.dataset && t.dataset.d === 'sel' && RV) { const r = RV.drows[+t.closest('.drow').dataset.n]; if (r) { r.item = RV.items[+t.value] || null; recalcDisc(); } }
     if (t.id === 'bk' && t.files[0]) restore(t.files[0]);

@@ -108,3 +108,33 @@ test('Pacote 8x90g: preço de cada unidade', () => {
   assert.equal(r.n, 8); assert.equal(r.each, 3.49);
   assert.equal(S.packUnit('ARROZ 5KG', 'UN', 24.9), null);
 });
+
+/* Cupom real (Zeferino, 04/10/2026, 21 itens, total 244,12) fotografado em 3 partes; texto lido por um leitor local */
+const ZEF = require('./fixtures/zeferino-ocr.json');
+const zef = () => Object.values(ZEF).map((l) => P.parseReceiptText(l.join('\n')));
+
+test('Cupom real: uma foto só já liga cada desconto ao item certo e lê os códigos', () => {
+  const d = zef()[0]; // foto do topo (itens 1 a 19)
+  assert.ok(d.items.length >= 18);
+  const by = (n) => d.items.find((i) => i.name.includes(n));
+  assert.equal(by('RTIL').discount, 6); assert.equal(by('RTIL').ean, '7898935886010');
+  assert.equal(by('QJ').discount, 4.5); assert.ok(Math.abs(by('QJ').total - 15.24) < 0.011);
+  assert.equal(d.items.filter((i) => i.discount > 0).length, 4);
+});
+
+test('Cupom real: juntar 3 fotos dá os 21 itens, 4 descontos e a soma fecha em 244,12', () => {
+  const m = P.mergeReads(zef());
+  assert.equal(m.items.length, 21);
+  assert.equal(m.items.filter((i) => i.discount > 0).length, 4);
+  assert.equal(m.printedTotal, 244.12);
+  const sum = Math.round(m.items.reduce((a, i) => a + i.total, 0) * 100) / 100;
+  assert.equal(sum, 244.12);
+  assert.ok(P.conferir(m).every((c) => c.ok), JSON.stringify(P.conferir(m)));
+  assert.equal(m.items.filter((i) => i.ean).length >= 6, true);
+});
+
+test('Juntar fotos: uma foto sozinha continua igual; sem itens devolve null', () => {
+  const d = zef()[0];
+  assert.equal(P.mergeReads([d]).items.length, d.items.length);
+  assert.equal(P.mergeReads([{ items: [] }]), null);
+});

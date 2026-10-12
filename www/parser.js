@@ -3,6 +3,7 @@
   'use strict';
   const Core = root.Core || (typeof require !== 'undefined' ? require('./core.js') : null);
   const { num, norm, validEAN, gtinOK, cleanEAN, round } = Core;
+  const Std = root.Std || (typeof require !== 'undefined' ? require('./std.js') : null);
 
   const UNITS = 'UN|UND|UNID|PC|PCT|CX|DZ|LT|FD|BD|KG|G|GR|L|ML|M|MT|PT|SC|BDJ|PAC';
 
@@ -87,7 +88,7 @@
     if (toks.length && toks[0].length <= 3 && !/[A-Za-zÀ-ÿ]{3}/.test(toks[0])) toks.shift(); else if (toks.length && /^\S{1,2}$/.test(toks[0])) toks.shift();
     while (toks.length && isDigitish(toks[0])) toks.shift();
     while (toks.length > 1 && /^\S$/.test(toks[toks.length - 1])) toks.pop();
-    return toks.join(' ').replace(/[^A-Za-zÀ-ÿ0-9 .,%\/\-]/g, ' ').replace(/\s+/g, ' ').trim();
+    return toks.join(' ').replace(/[^A-Za-zÀ-ÿ0-9 .,%\/\-]/g, ' ').replace(/\s+\d*\s*[UuNn]{1,2}\s*[xX]\s*\d.*$/, '').replace(/\s+[A-Z]?\d$/, '').replace(/\s+/g, ' ').trim();
   }
 
   // Linha de item lida com erros: usa o que dá (total no fim, preço depois do "x", quantidade antes da unidade)
@@ -156,7 +157,7 @@
     }
     if (draft.printedCount > 0) {
       const q = round(items.reduce((a, i) => a + (i.unit === 'KG' ? 1 : i.qty), 0), 3);
-      const ok = Math.abs(q - draft.printedCount) < 0.001;
+      const ok = Math.abs(q - draft.printedCount) < 0.001 || items.length === draft.printedCount;
       out.push({ ok, kind: 'qtd', msg: ok ? 'A quantidade de itens confere com a nota.' : `A nota diz ${draft.printedCount} itens e eu li ${q}. Pode faltar ou sobrar um item.` });
     }
     if (draft.chave && !/^\d{44}$/.test(draft.chave)) out.push({ ok: false, kind: 'chave', msg: 'A chave de acesso não tem 44 dígitos.' });
@@ -259,8 +260,90 @@ Regras: use ponto como separador decimal; "desconto" é o desconto do próprio i
     return out;
   }
 
+  /* Conserta erros típicos de OCR em linha de cupom térmico: código colado no nome, "1UNX" sem espaço, K9 por Kg, sequência colada no código */
+  function fixCupomLine(l) {
+    return l
+      .replace(/^(\d{2})(\d{14})(?=\D|$)/, '$1 $2')            // 16 dígitos: sequência + código de 14
+      .replace(/^(\d)(\d{14})(?=\D|$)/, '$1 $2')
+      .replace(/^(\d{1,3}\s+)?(\d{13,14})(?=[A-Za-zÀ-ÿ\/])/, '$1$2 ')   // código colado no nome
+      .replace(/^(\d{1,3}\s+)?(\d{13,14})\s*\/(?=[A-Za-z])/, '$1$2 ')
+      .replace(/\bK[9G]\b/g, 'Kg')
+      .replace(/(\d)\s*(UN|KG)\s*[xX×](?=\s*\d)/gi, '$1 $2 x ')    // 1UNX14,79 -> 1 UN x 14,79
+      .replace(/([.,]\d{2})\s*([A-Z]\d{2})(?=\d+[.,]\d{2}$)/, '$1 $2 ')  // T06 colado no total
+      .replace(/\s+/g, ' ').trim();
+  }
+
+  const cupomRe = /^(?:(\d{1,3})\s+)?(\d{12,14})\s+(.+?)\s*(\d+(?:[.,]\d+)?)\s*(UN|KG)\s*x\s*(?:R\$\s*)?(\d+[.,]\d{2})(.*)$/i;
+  function cupomItem(line) {
+    const m = line.match(cupomRe); if (!m) return null;
+    const qty = num(m[4].replace(/^(\d)(\d{3})$/, '$1.$2')), price = num(m[6]), mt = m[7].match(/(\d+[.,]\d{2})\s*$/), calc = round(qty * price, 2);
+    let total = mt ? num(mt[1]) : NaN; const sure = mt && Math.abs(total - calc) < 0.06;
+    if (!sure) total = calc;
+    const name = cleanName(m[3]);
+    if (!/[A-Za-zÀ-ÿ]{2}/.test(name) || !(qty > 0)) return null;
+    const ean = validEAN(m[2]) ? cleanEAN(m[2]) : '';
+    return { seq: m[1] ? parseInt(m[1], 10) : undefined, name, ean, scode: ean ? '' : m[2].replace(/^0+/, ''), qty, unit: m[5].toUpperCase(), unitPrice: price, total, raw: name, check: !sure };
+  }
+
+  /* ---------- várias fotos da mesma nota: junta as leituras e fica com o que concorda ---------- */
+  const alphaScore = (n) => { const t = String(n || ''); if (/\b(CODI\w*|DESCRI\w*|QTD|QTO|UL\.?UNIT|VL\.?UNIT|STYOTAL|TOTAL)\b/i.test(t)) return -100; const w = t.split(/\s+/).filter(Boolean); const bad = w.filter((x) => /[A-Za-zÀ-ÿ]/.test(x) && /\d/.test(x) && !/^\d+[.,]?\d*(?:KG|G|ML|L|UN)$/i.test(x)).length; return (t.match(/[A-Za-zÀ-ÿ]/g) || []).length - 8 * bad - 0.2 * (t.match(/[^A-Za-zÀ-ÿ0-9 .,%\/\-]/g) || []).length; };
+  const vote = (vals, key) => { const c = new Map(); vals.forEach((v) => { const k = key ? key(v) : v; c.set(k, (c.get(k) || 0) + 1); }); let best = null, bn = 0; c.forEach((n, k) => { if (n > bn) { best = k; bn = n; } }); return { v: best, n: bn }; };
+  function mergeReads(drafts) {
+    const reads = drafts.filter((d) => d && d.items && d.items.length);
+    if (!reads.length) return null;
+    if (reads.length === 1) return Object.assign({}, reads[0], { merged: 1 });
+    const gross = (x) => round(x.total + (x.discount || 0), 2);
+    reads.sort((a, b) => b.items.length - a.items.length);
+    // linhas do resultado: cada uma guarda as versões vindas de cada leitura
+    const rows = reads[0].items.map((it) => ({ cands: [it] }));
+    const place = (d) => {
+      const used = new Set(); let lastRow = null; const lead = [];
+      d.items.forEach((it) => {
+        let hit = null, bestSc = -1e9;
+        rows.forEach((r, k) => {
+          if (used.has(r)) return;
+          const ref = r.cands[0];
+          if (Math.abs(gross(ref) - gross(it)) > 0.011) return;
+          const nm = Std.similarity ? Std.similarity(ref.name, it.name) : 0;
+          const after = lastRow ? rows.indexOf(lastRow) : -1;
+          const sc = (k > after ? 1 : 0) + nm + (Math.abs((ref.qty || 1) - (it.qty || 1)) < 0.0005 ? 0.5 : 0) - Math.abs(k - (after + 1)) * 0.01;
+          if (sc > bestSc) { bestSc = sc; hit = r; }
+        });
+        if (hit) {
+          hit.cands.push(it); used.add(hit);
+          if (lead.length) { const at = rows.indexOf(hit); lead.splice(0).forEach((x, n) => { const nr = { cands: [x] }; rows.splice(at + n, 0, nr); used.add(nr); }); }
+          lastRow = hit;
+        } else if (lastRow) {
+          const nr = { cands: [it] }; rows.splice(rows.indexOf(lastRow) + 1, 0, nr); used.add(nr); lastRow = nr;
+        } else lead.push(it);
+      });
+      lead.forEach((x) => rows.push({ cands: [x] }));
+    };
+    reads.slice(1).forEach(place);
+    const items = rows.map((r) => {
+      const cs = r.cands;
+      const g = vote(cs.map(gross), (x) => x.toFixed(2)).v, gv = parseFloat(g);
+      const discs = cs.map((c) => c.discount || 0).filter((x) => x > 0);
+      const disc = discs.length ? parseFloat(vote(discs, (x) => x.toFixed(2)).v) : 0;
+      const name = cs.map((c) => c.name).sort((a, b) => alphaScore(b) - alphaScore(a))[0];
+      const eans = cs.map((c) => c.ean).filter((e) => e && gtinOK(e));
+      const ean = eans.length ? vote(eans).v : '';
+      const sc = cs.map((c) => c.scode).filter(Boolean);
+      const good = cs.filter((c) => !c.check) , pool = good.length ? good : cs;
+      const qty = parseFloat(vote(pool.map((c) => c.qty), (x) => x.toFixed(3)).v), unit = vote(pool.map((c) => c.unit)).v;
+      const net = round(gv - disc, 2);
+      const it = { name, ean, scode: ean ? '' : (sc.length ? vote(sc).v : ''), qty, unit, unitPrice: round(net / (qty || 1), 4), total: net, raw: name, check: !good.length && cs.length < 2, reads: cs.length };
+      if (disc > 0) it.discount = disc;
+      return it;
+    });
+    items.forEach((it, k) => { it.seq = k + 1; });
+    const first = (f) => { for (const d of reads) if (d[f]) return d[f]; return ''; };
+    const out = { source: 'ocr', merged: reads.length, items, marketName: first('marketName'), marketCnpj: first('marketCnpj'), date: first('date'), printedTotal: first('printedTotal') || undefined, printedCount: first('printedCount') || undefined, chave: first('chave'), rawText: reads.map((d) => d.rawText || '').join('\n---\n') };
+    return out;
+  }
+
   function parseReceiptText(text) {
-    const lines = String(text || '').split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const lines = String(text || '').split(/\r?\n/).map((l) => fixCupomLine(l.replace(/\s+/g, ' ').trim())).filter(Boolean);
     const draft = { source: 'ocr', items: [], rawText: text, marketName: '', marketCnpj: '', date: '', city: '' };
 
     // cabeçalho: CNPJ, nome do mercado, data
@@ -277,23 +360,32 @@ Regras: use ponto como separador decimal; "desconto" é o desconto do próprio i
     if (!draft.marketName) draft.marketName = (lines.find((l) => /[A-Za-zÀ-ÿ]{4}/.test(l)) || '').slice(0, 60);
     const dm = String(text).match(/(\d{2})\s?\/\s?(\d{2})\s?\/\s?(20\d{2})/);
     if (dm && +dm[2] >= 1 && +dm[2] <= 12 && +dm[1] >= 1 && +dm[1] <= 31) draft.date = `${dm[3]}-${dm[2]}-${dm[1]}`;
-    const tm = String(text).match(/VALOR\s*(?:TOTAL\s*(?:\(R\$\))?|PAGO|A PAGAR)?\s*(?:R\$)?\s*:?\s*(\d+[.,]\d{2})\s*$/im) || String(text).match(/VALOR:\s*(\d+[.,]\d{2})/i);
+    const tm = String(text).match(/[VU]AL[O0]R\s*TOTAL[^\d\n]{0,8}(\d+[.,]\d{2})\s*$/im) || String(text).match(/VALOR\s*(?:TOTAL\s*(?:\(R\$\))?|PAGO|A PAGAR)?\s*(?:R\$)?\s*:?\s*(\d+[.,]\d{2})\s*$/im) || String(text).match(/VALOR:\s*(\d+[.,]\d{2})/i);
     if (tm) draft.printedTotal = num(tm[1]);
 
     const chm = String(text).replace(/(\d)\s+(?=\d{4}\b)/g, '$1').match(/\b(\d{44})\b/) || String(text).match(/((?:\d{4}\s){10}\d{4})/);
     if (chm) draft.chave = chm[1].replace(/\s/g, '');
     const em = String(text).match(/Emiss[ãa]o:?\s*(\d{2})\/(\d{2})\/(20\d{2})/i);
     if (em) draft.date = `${em[3]}-${em[2]}-${em[1]}`;
-    const qt = String(text).match(/Qtde\.?\s*total\s*de\s*itens\s*:?\s*(\d+)/i);
+    const qt = String(text).match(/Q[tT][dDoO]e?\.?\s*total\s*de\s*itens\s*:?\s*(\d+)/i) || String(text).match(/Q[YT][DO]\.?\s*TOTAL\s*DE\s*ITENS\s*:?\s*(\d+)/i);
     if (qt) draft.printedCount = parseInt(qt[1], 10);
 
     const st = '(?:\\s+[A-Z]{1,2}\\d{0,2})?'; // coluna ST do cupom (T06, F, I...)
     const qtyLineRe = new RegExp(`^(\\d+(?:[.,]\\d+)?)\\s*(${UNITS})\\s*[xX*]\\s*(?:R\\$\\s*)?(\\d+[.,]\\d{2,4})${st}\\s+(?:R\\$\\s*)?(\\d+[.,]\\d{2})$`, 'i');
     const fullRe = new RegExp(`^(?:(\\d{1,3})\\s+)?(?:(\\d{8,14})\\s+)?(.+?)\\s+(\\d+(?:[.,]\\d+)?)\\s*(${UNITS})\\s*[xX*]?\\s*(?:R\\$\\s*)?(\\d+[.,]\\d{2,4})${st}\\s+(?:R\\$\\s*)?(\\d+[.,]\\d{2})$`, 'i');
     const descRe = /^(?:(\d{1,3})\s+)?(?:(\d{8,14})\s+)?([A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9 .,%\/\-]{2,})$/;
-    const push = (it) => { draft.items.push(Object.assign(it, { check: !!it.check || !(Math.abs(it.qty * it.unitPrice - it.total) < 0.06) })); };
+    let lastSeq = 0;
+    const push = (it) => {
+      // sequência do cupom: usa a lida se for a próxima (ou quase); senão, a seguinte à anterior
+      if (!(it.seq > 0 && ((lastSeq === 0 && it.seq <= 99) || (it.seq > lastSeq && it.seq <= lastSeq + 3)))) it.seq = lastSeq + 1;
+      lastSeq = it.seq;
+      it.name = String(it.name).replace(/\s+\d*\s*[UuNn]{1,2}\s*[xX]\s*\d.*$/, '').replace(/\s+[A-Z]?\d$/, '').trim() || it.name;
+      draft.items.push(Object.assign(it, { check: !!it.check || !(Math.abs(it.qty * it.unitPrice - it.total) < 0.06) }));
+    };
     const applyDisc = (seq, amt) => {
-      const it = (seq != null && draft.items.find((x) => x.seq === seq)) || draft.items[draft.items.length - 1];
+      const bySeq = seq != null ? draft.items.find((x) => x.seq === seq) : null;
+      if (seq != null && !bySeq) { (draft.unmatchedDiscounts = draft.unmatchedDiscounts || []).push({ seq, amt }); return; } // item não lido: não joga o desconto em outro
+      const it = bySeq || draft.items[draft.items.length - 1];
       if (!it || !(amt > 0)) return;
       it.total = round(it.total - amt, 2); it.unitPrice = round(it.total / it.qty, 4); it.discount = round((it.discount || 0) + amt, 2);
     };
@@ -303,9 +395,10 @@ Regras: use ponto como separador decimal; "desconto" é o desconto do próprio i
       if (/^\W{0,3}desconto\s+sobre\s+(?:o\s+)?item/i.test(line)) { // linha logo abaixo do item: vale para o item de cima
         const am = line.match(/(\d+[.,]\d{2})\s*\S{0,2}$/); if (am) applyDisc(null, Math.abs(num(am[1]))); continue;
       }
-      if (/^\W{0,3}Desc\w*.{0,14}?(?:ite[mn]|[íiIÍ]?t?e[nm])\s*[:;]/i.test(line)) {
-        const am = line.match(/(\d+[.,]\d{2})\s*\S{0,2}$/);
-        if (am) { applyDisc(null, Math.abs(num(am[1]))); discSeq = null; } else discSeq = true;
+      if (/^\W{0,3}D?esc\w*.{0,14}?(?:ite[mn]|[íiIÍ]?t?e[nm])\s*[:;]/i.test(line)) {
+        const am = line.match(/(\d+[.,]\d{2})\s*\S{0,2}$/), sm = line.match(/[:;]\s*0*(\d{1,3})\b/);
+        const dseq = sm ? parseInt(sm[1], 10) : null;
+        if (am) { applyDisc(dseq, Math.abs(num(am[1]))); discSeq = null; } else discSeq = true;
         continue;
       }
       if (discSeq && /^\S{0,2}\s*\d+[.,]\d{2}\s*\S{0,2}$/.test(line)) { applyDisc(null, Math.abs(num(line.replace(/[^\d.,]/g, '')))); discSeq = null; continue; }
@@ -318,6 +411,18 @@ Regras: use ponto como separador decimal; "desconto" é o desconto do próprio i
       }
       const at = atacItem(line);
       if (at) { push(at); pending = null; continue; }
+      const ci = cupomItem(line);
+      if (ci) { push(ci); pending = null; continue; }
+      { // 2ª linha de item por peso: "0,130 Kg x 172,90 T06 22,48" (nome na linha de cima)
+        const q2 = pending && line.match(/^(\d+[.,]?\d*)\s*(KG|UN)\s*[xX]\s*(\d+[.,]\d{2})(.*)$/i);
+        if (q2) {
+          const qty = num(q2[1].replace(/^(\d)(\d{3})$/, '$1.$2')), price = num(q2[3]), mt = q2[4].match(/(\d+[.,]\d{2})\s*$/);
+          let total = mt ? num(mt[1]) : NaN; const calc = round(qty * price, 2);
+          if (!(Math.abs(total - calc) < 0.06)) total = calc;   // total ilegível: refaz pela conta
+          push({ seq: pending.seq, name: pending.name, ean: pending.ean, scode: pending.scode || '', qty, unit: q2[2].toUpperCase(), unitPrice: price, total, raw: pending.name, check: !(mt && Math.abs(num(mt[1]) - calc) < 0.06) });
+          pending = null; continue;
+        }
+      }
       let m = line.match(fullRe);
       if (m) {
         push({ seq: m[1] ? parseInt(m[1], 10) : undefined, name: m[3].trim(), ean: validEAN(m[2]) ? m[2] : '', qty: num(m[4]), unit: m[5].toUpperCase(), unitPrice: num(m[6]), total: num(m[7]), raw: m[3].trim() });
@@ -331,7 +436,7 @@ Regras: use ponto como separador decimal; "desconto" é o desconto do próprio i
       const lo = looseItem(line, draft.items.length + 1);
       if (lo) { push(lo); pending = null; continue; }
       m = line.match(descRe);
-      if (m && /[A-Za-zÀ-ÿ]{3}/.test(m[3]) && !/\d+[.,]\d{2}$/.test(line)) { pending = { name: m[3].trim(), ean: validEAN(m[2]) ? m[2] : '', seq: m[1] ? parseInt(m[1], 10) : undefined }; continue; }
+      if (m && /[A-Za-zÀ-ÿ]{3}/.test(m[3]) && !/\d+[.,]\d{2}$/.test(line)) { pending = { name: m[3].trim(), ean: validEAN(m[2]) ? m[2] : '', scode: m[2] && !validEAN(m[2]) ? m[2].replace(/^0+/, '') : '', seq: m[1] ? parseInt(m[1], 10) : undefined }; continue; }
       // último recurso: "NOME DO PRODUTO   12,90" (assume quantidade 1, pede conferência)
       m = line.match(/^(?:(\d{1,3})\s+)?(?:\d{8,14}\s+)?([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9 .,%\/\-]{3,}?)\s+(\d+[.,]\d{2})$/);
       if (m) {
@@ -485,6 +590,6 @@ Regras: use ponto como separador decimal; "desconto" é o desconto do próprio i
     return parseReceiptText(text);
   }
 
-  const api = { parseNFeXML, parseReceiptText, parseSefazText, parseDanfeText, looksDanfe, parseAny, looseItem, conferir, parseCestaJSON, CESTA_PROMPT, parseIfoodText, looksIfood, mergeCupom };
+  const api = { parseNFeXML, parseReceiptText, parseSefazText, parseDanfeText, looksDanfe, parseAny, looseItem, conferir, mergeReads, parseCestaJSON, CESTA_PROMPT, parseIfoodText, looksIfood, mergeCupom };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Parser = api;
 })(typeof self !== 'undefined' ? self : this);
