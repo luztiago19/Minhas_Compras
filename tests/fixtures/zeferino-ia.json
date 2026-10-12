@@ -1,0 +1,23 @@
+{"formato":"cesta-certa-v1","mercado":"Rede de Distribuicao Zeferino Ltda","cnpj":"67228536001373","data":"2026-10-04","canal":"loja","pedido":"","total_nota":244.12,"cupom_app":0,"taxas":0,"total_pago":244.12,"itens":[
+{"nome":"ACHOC PO NESCAU 350G","ean":"7891000390030","codigo":"","qtd":1,"unidade":"UN","preco_unitario":14.79,"total":14.79,"desconto":0},
+{"nome":"CHOC ARCOR AMARGO 80G","ean":"7898142863897","codigo":"","qtd":1,"unidade":"UN","preco_unitario":13.99,"total":13.99,"desconto":0},
+{"nome":"CHOC ARCOR AMARGO 80G","ean":"7898142863897","codigo":"","qtd":1,"unidade":"UN","preco_unitario":13.99,"total":13.99,"desconto":0},
+{"nome":"ACH PO NESCAU 180G 60%","ean":"7891000377727","codigo":"","qtd":1,"unidade":"UN","preco_unitario":17.49,"total":17.49,"desconto":0},
+{"nome":"FARINHA DE AMENDOA Kg","ean":"","codigo":"02787200000000","qtd":0.130,"unidade":"KG","preco_unitario":172.90,"total":22.48,"desconto":0},
+{"nome":"ABACATE Kg","ean":"","codigo":"02024600000000","qtd":0.695,"unidade":"KG","preco_unitario":7.99,"total":5.55,"desconto":0},
+{"nome":"TOMATE ITALIANO Kg","ean":"","codigo":"02154600000000","qtd":0.555,"unidade":"KG","preco_unitario":13.98,"total":7.76,"desconto":0},
+{"nome":"MANGA PALMER Kg","ean":"","codigo":"02145800000000","qtd":0.910,"unidade":"KG","preco_unitario":8.98,"total":8.17,"desconto":1.82},
+{"nome":"MIRTILO BDJ UN","ean":"7898935886010","codigo":"","qtd":1,"unidade":"UN","preco_unitario":15.98,"total":15.98,"desconto":6.00},
+{"nome":"ABACAXI MEDIO UN","ean":"","codigo":"00000000003866","qtd":1,"unidade":"UN","preco_unitario":8.99,"total":8.99,"desconto":0},
+{"nome":"MAMAO PAPAIA UN","ean":"","codigo":"00000000009392","qtd":1,"unidade":"UN","preco_unitario":5.99,"total":5.99,"desconto":0},
+{"nome":"MAMAO PAPAIA UN","ean":"","codigo":"00000000009392","qtd":1,"unidade":"UN","preco_unitario":5.99,"total":5.99,"desconto":0},
+{"nome":"QJO PARMES QUATA PC Kg","ean":"","codigo":"02796300000000","qtd":0.152,"unidade":"KG","preco_unitario":129.90,"total":19.74,"desconto":4.50},
+{"nome":"LIMAO TAHITI Kg","ean":"","codigo":"02143500000000","qtd":0.340,"unidade":"KG","preco_unitario":14.99,"total":5.10,"desconto":0},
+{"nome":"BANANA NANICA COMUM Kg","ean":"","codigo":"02134300000000","qtd":1.545,"unidade":"KG","preco_unitario":6.99,"total":10.80,"desconto":0},
+{"nome":"LEITE LV ITAMBE CT 1L","ean":"7896051111764","codigo":"","qtd":1,"unidade":"UN","preco_unitario":6.89,"total":6.89,"desconto":0},
+{"nome":"LEITE LV ITAMBE CT 1L","ean":"7896051111764","codigo":"","qtd":1,"unidade":"UN","preco_unitario":6.89,"total":6.89,"desconto":0},
+{"nome":"LEITE LV ITAMBE CT 1L","ean":"7896051111016","codigo":"","qtd":12,"unidade":"UN","preco_unitario":5.49,"total":65.88,"desconto":8.40},
+{"nome":"BOMBOM LACTA OURO BRAN","ean":"78939318","codigo":"","qtd":1,"unidade":"UN","preco_unitario":1.99,"total":1.99,"desconto":0},
+{"nome":"BOMBOM LACTA SONHO DE","ean":"78939301","codigo":"","qtd":1,"unidade":"UN","preco_unitario":1.99,"total":1.99,"desconto":0},
+{"nome":"PASTILHA TIC TAC 14G","ean":"78945456","codigo":"","qtd":1,"unidade":"UN","preco_unitario":4.39,"total":4.39,"desconto":0}
+]}

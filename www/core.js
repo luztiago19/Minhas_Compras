@@ -35,7 +35,14 @@
   const addDays = (iso, n) => { const d = new Date(parseDate(iso) + n * DAY); return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()); };
 
   // GTIN-14 com zero à esquerda vira EAN-13; códigos internos com muitos zeros não contam como EAN.
-  const cleanEAN = (e) => { let d = String(e || '').replace(/\D/g, ''); while (d.length > 13 && d[0] === '0') d = d.slice(1); return d; };
+  const gtin8 = (c) => { if (!/^\d{8}$/.test(c)) return false; const d = c.split('').map(Number), chk = d.pop(); let s = 0; for (let i = 6, w = 3; i >= 0; i--, w = 4 - w) s += d[i] * w; return (10 - (s % 10)) % 10 === chk; };
+  const cleanEAN = (e) => {
+    let d = String(e || '').replace(/\D/g, '');
+    const core = d.replace(/^0+/, '');
+    if (d.length > 8 && core.length === 8 && gtin8(core)) return core; // EAN-8 impresso com zeros na frente (cupom do Zeferino)
+    while (d.length > 13 && d[0] === '0') d = d.slice(1);
+    return d;
+  };
   // dígito verificador GTIN (EAN-8, UPC-A de 12, EAN-13, GTIN-14): serve para confiar ou não num código digitado ou lido por OCR
   const gtinOK = (c) => {
     c = cleanEAN(c); if (!/^(\d{8}|\d{12}|\d{13}|\d{14})$/.test(c)) return false;

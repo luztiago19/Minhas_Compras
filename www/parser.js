@@ -197,7 +197,7 @@ Regras: use ponto como separador decimal; "desconto" é o desconto do próprio i
       if (!isFinite(total)) return;
       const net = round(total - disc, 2); // recalcula: preço líquido = total - desconto do item
       const eanRaw = String(pick(r, 'ean', 'codigo_barras')).replace(/\D/g, '');
-      const it = { seq: k + 1, name, ean: validEAN(eanRaw) ? cleanEAN(eanRaw) : '', scode: String(pick(r, 'codigo', 'code')).trim(), qty, unit: String(pick(r, 'unidade', 'unit') || 'UN').toUpperCase(), unitPrice: round(net / qty, 4), total: net, raw: name };
+      const it = { seq: k + 1, name, ean: validEAN(eanRaw) ? cleanEAN(eanRaw) : '', scode: String(pick(r, 'codigo', 'code')).trim(), qty, unit: String(pick(r, 'unidade', 'unit') || 'UN').toUpperCase(), unitPrice: (disc === 0 && isFinite(unitPrice) && Math.abs(qty * unitPrice - total) < 0.06) ? unitPrice : round(net / qty, 4), total: net, raw: name };
       if (disc > 0) it.discount = disc;
       if (!(Math.abs(qty * unitPrice - total) < 0.06)) { it.check = true; it.note = 'A conta quantidade × preço não bateu na resposta da IA. Confira.'; }
       d.items.push(it);
